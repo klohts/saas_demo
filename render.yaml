@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: ai-email-saas
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash start.sh
+    envVars:
+      - key: APP_API_KEY
+        sync: false
+      - key: X_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: models/gemini-2.5-pro
+      - key: GMAIL_OAUTH_CLIENT_JSON
+        sync: false
+      - key: EMAIL_SENDER_OVERRIDE
+        sync: false
+      - key: SLACK_WEBHOOK
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+    disks:
+      - name: data
+        mountPath: /data
+        sizeGB: 1
