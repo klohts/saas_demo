@@ -28,3 +28,4 @@ def root(x_api_key: str = None):
     if not verify_api_key(x_api_key):
         return {"detail": "Unauthorized"}
     return {"message": "Welcome to AI Gmail Reply SaaS"}
+# force redeploy Sat Nov  1 12:46:35 WAT 2025
