@@ -9,11 +9,10 @@ class DemoReplyIn(BaseModel):
     subject: str
     body: str
     customer_email: str
-    dry_run: bool = False  # Allow Zapier/local testing without sending
+    dry_run: bool = False
 
 @router.post("/draft-reply")
 def draft_reply(payload: DemoReplyIn):
-    """Generate AI reply and draft or send via Gmail."""
     reply = generate_reply(payload.subject, payload.body)
     try:
         result = draft_or_send_email(
