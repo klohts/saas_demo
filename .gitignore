@@ -1,8 +1,0 @@
-# 🔒 Ignore all secret and credential files
-*.json
-*.pkl
-token.json
-keys/
-# Environment and secrets
-.env
-.env.*
