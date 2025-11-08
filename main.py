@@ -28,7 +28,7 @@ cm.init_db()
 class UsageMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if path.startswith("/static") or path.startswith("/docs") or path.startswith("/admin"):
+        if path.startswith("/static") or path.startswith("/docs") or path.startswith("/admin") or path.startswith("/api/plan"):
             return await call_next(request)
 
         if path.startswith("/api/admin"):
