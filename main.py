@@ -191,13 +191,19 @@ app.add_middleware(UsageMiddleware)
     return {"message": f"hello {c['name']}", "plan": c['plan'], "demo_mode": DEMO_MODE}
 
 # --- Demo client bootstrap (safe persistent storage) ---
+
+# ============================================================
+# 🧠 Demo Client Initialization (fixed scope + safe persistence)
+# ============================================================
+
 def ensure_demo_client():
     """Ensures a demo client exists and persists its API key safely."""
     clients = cm.list_clients()
     demo_dir = os.path.join(APP_ROOT, "data")
     demo_path = os.path.join(demo_dir, "demo_api_key.txt")
+
+    os.makedirs(demo_dir, exist_ok=True)
     try:
-        os.makedirs(demo_dir, exist_ok=True)
         if not clients:
             logging.info("🧩 Creating demo client (fresh instance)...")
             demo = cm.create_client("Demo Client", "Free")
@@ -217,15 +223,16 @@ def ensure_demo_client():
 if DEMO_MODE:
     ensure_demo_client()
 
-# --- /api/hello route (safe key read) ---
+# ============================================================
+# 🔑 /api/hello — demo key fallback route (fixed indent)
+# ============================================================
 @app.get("/api/hello")
 def hello(key: str = Header(None, alias="X-API-Key")):
     """Returns client info and confirms demo mode."""
     demo_path = os.path.join(APP_ROOT, "data", "demo_api_key.txt")
-    if DEMO_MODE and (not key):
+    if DEMO_MODE and not key and os.path.exists(demo_path):
         try:
-            if os.path.exists(demo_path):
-                key = open(demo_path).read().strip()
+            key = open(demo_path).read().strip()
         except Exception as e:
             logging.error(f"❌ Could not read demo key: {e}")
     if not key:
