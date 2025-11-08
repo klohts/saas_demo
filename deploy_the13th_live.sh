@@ -96,3 +96,5 @@ bash "$PROJECT_DIR/verify_the13th.sh"
 
 echo "🧭 Deployment & verification complete!"
 echo "✨ THE13TH is live at: $APP_URL"
+
+python -m py_compile main.py || { echo "❌ Syntax or indentation error — aborting deploy."; exit 1; }
