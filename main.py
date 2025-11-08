@@ -45,7 +45,7 @@ class UsageMiddleware(BaseHTTPMiddleware):
             path.startswith("/static"),
             path.startswith("/docs"),
             path.startswith("/admin"),
-            path.startswith("/api/plan"),
+            path.startswith("/api/plan"), path.startswith("/api/admin"),
             path.startswith("/docs13"),
             path == "/"
         ]):
@@ -86,5 +86,9 @@ def billing_status(api_key: str):
 
 @app.get("/api/hello")
 def hello(key: str = Header(None, alias="X-API-Key")):
+    if DEMO_MODE and not key:
+        key_path = os.path.join(APP_ROOT, "tmp_demo_api_key.txt")
+        if os.path.exists(key_path):
+            key = open(key_path).read().strip()
     c = cm.get_client_by_api(key)
     return {"message": f"hello {c['name']}", "plan": c['plan'], "demo_mode": DEMO_MODE}
