@@ -1,0 +1,38 @@
+name: 🛰️ Keep THE13TH Alive + API Health Check
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # every 10 minutes
+  workflow_dispatch:          # manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🌍 Ping THE13TH root page
+        run: |
+          echo "🔄 Pinging THE13TH root at $(date)"
+          if curl -fsS https://the13th.onrender.com/ -o /dev/null; then
+            echo "✅ Root responded OK"
+          else
+            echo "❌ Root ping failed"
+            exit 1
+          fi
+
+      - name: 🧠 Check /api/plan JSON health
+        run: |
+          echo "🔎 Checking API health at /api/plan..."
+          RESPONSE=$(curl -fsS https://the13th.onrender.com/api/plan || true)
+          echo "Response: $RESPONSE"
+          
+          if echo "$RESPONSE" | grep -q '"Free"' && echo "$RESPONSE" | grep -q '"Pro"'; then
+            echo "✅ API JSON structure looks healthy."
+          else
+            echo "⚠️  API may not be responding correctly."
+            exit 1
+          fi
+
+      - name: ✅ Summary
+        if: ${{ success() }}
+        run: |
+          echo "✨ THE13TH instance is awake and healthy."
