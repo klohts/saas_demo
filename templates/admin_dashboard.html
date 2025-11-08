@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head>
+  <title>THE13TH — Admin Dashboard</title>
+  <link rel="stylesheet" href="/static/the13th.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .stats { display: flex; gap: 2em; margin: 1em 0; }
+    .stat { background: #1b1b1b; padding: 1em; border-radius: 10px; color: #eee; }
+    canvas { background: #101010; border-radius: 8px; padding: 10px; }
+  </style>
+</head>
+<body class="page">
+<h1>🧩 THE13TH Admin Dashboard</h1>
+<div class="stats">
+  <div class="stat">
+    <h3>📊 Requests Today</h3>
+    <p>{{ metrics.requests_today }}</p>
+  </div>
+  <div class="stat">
+    <h3>⚙️ Avg Response</h3>
+    <p>{{ metrics.avg_duration_ms }} ms</p>
+  </div>
+  <div class="stat">
+    <h3>📧 Emails Sent</h3>
+    <p>{{ email_stats.sent }}</p>
+  </div>
+  <div class="stat">
+    <h3>❌ Failed Emails</h3>
+    <p>{{ email_stats.failed }}</p>
+  </div>
+</div>
+
+<h2>📈 Activity (Last 24h)</h2>
+<canvas id="requestsChart" width="800" height="300"></canvas>
+
+<h2>📜 Recent Email Logs</h2>
+<pre style="background:#111;color:#0f0;padding:1em;border-radius:8px;max-height:250px;overflow:auto;">{{ email_log }}</pre>
+
+<footer><a href="/">← Back Home</a></footer>
+
+<script>
+const ctx = document.getElementById('requestsChart');
+new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: {{ chart_labels|safe }},
+    datasets: [{
+      label: 'Requests per Hour',
+      data: {{ chart_data|safe }},
+      borderColor: '#a855f7',
+      borderWidth: 2,
+      fill: false,
+      tension: 0.3
+    }]
+  },
+  options: {
+    scales: { x: { ticks: { color: '#ccc' } }, y: { ticks: { color: '#ccc' } } },
+    plugins: { legend: { labels: { color: '#ccc' } } }
+  }
+});
+</script>
+</body>
+</html>

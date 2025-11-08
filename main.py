@@ -307,3 +307,35 @@ def view_email_log(request: Request):
         content = log_path.read_text()[-5000:]  # last 5k chars
     return templates.TemplateResponse("email_log.html",
         {"request": request, "log_content": content})
+
+# === Stage 13.4: Admin Overview Dashboard ===
+@app.get("/admin/overview", response_class=HTMLResponse)
+def admin_dashboard(request: Request):
+    from utils.telemetry import parse_today_metrics
+    from pathlib import Path
+    import json, datetime
+
+    metrics = parse_today_metrics()
+    log_path = Path("logs/email_delivery.log")
+    log_text = log_path.read_text()[-3000:] if log_path.exists() else "No emails logged yet."
+
+    sent = failed = 0
+    if log_path.exists():
+        for line in log_text.splitlines():
+            if "SENT" in line: sent += 1
+            elif "FAILED" in line: failed += 1
+    email_stats = {"sent": sent, "failed": failed}
+
+    # Generate dummy hourly request data for chart
+    now = datetime.datetime.utcnow()
+    hours = [(now - datetime.timedelta(hours=i)).strftime("%H:%M") for i in range(12)][::-1]
+    data = [max(0, metrics["requests_today"] // 12 + i % 3) for i in range(12)]
+
+    return templates.TemplateResponse("admin_dashboard.html", {
+        "request": request,
+        "metrics": metrics,
+        "email_stats": email_stats,
+        "chart_labels": json.dumps(hours),
+        "chart_data": json.dumps(data),
+        "email_log": log_text
+    })
