@@ -1,28 +1,44 @@
 #!/bin/bash
 # ============================================================
-# 🚀 THE13TH Smart Deploy Script with Live Status Polling
+# 🚀 THE13TH Smart Deploy Script (v4.8.x Final)
 # ------------------------------------------------------------
 # Pushes latest code to GitHub, triggers Render deploy hook,
-# polls deploy status via API until "live" or "failed".
-# Author: Ken | Project: THE13TH | Version: v4.8.x
+# polls live status via Render API until "live" or "failed",
+# then runs post-deploy verification.
+#
+# Author: Ken | Project: THE13TH
 # ============================================================
 
+# --- Config ---
 SERVICE_ID="srv-d475kper433s738vdmr0"
 DEPLOY_HOOK="https://api.render.com/deploy/srv-d475kper433s738vdmr0?key=AQ4JOubHX1g"
-RENDER_API="https://api.render.com/v1/deploys"
+RENDER_API="https://api.render.com/v1"
 PROJECT_DIR="/home/hp/AIAutomationProjects/saas_demo"
 
-# Optional: your Render API key (read-only)
-# export RENDER_API_KEY="rnd_..."
+# 🧩 IMPORTANT: set your Render API key here (for status polling)
+# Generate one at: https://render.com/docs/api
+export RENDER_API_KEY=rnd_EsPVNUxZqMcSI7q9GyODBMaRzHXd
 
-echo "🔄 Pushing latest changes to GitHub..."
-cd "$PROJECT_DIR" || exit 1
+# --- Start ---
+echo "🚀 Starting THE13TH smart deploy..."
+cd "$PROJECT_DIR" || { echo "❌ Project directory not found!"; exit 1; }
+
+# --- Git push (with empty commit if no changes) ---
+echo "🔄 Checking for local changes..."
 git add .
-git commit -m "Auto-deploy $(date '+%Y-%m-%d %H:%M:%S')" >/dev/null 2>&1 || echo "ℹ️  No new changes to commit."
-git push origin main >/dev/null 2>&1
-echo "✅ Code pushed successfully to GitHub (main)."
+if git diff-index --quiet HEAD --; then
+  git commit --allow-empty -m "Force redeploy $(date '+%Y-%m-%d %H:%M:%S')" >/dev/null 2>&1
+  echo "ℹ️  No local file changes; forcing new deploy commit."
+else
+  git commit -m "Auto-deploy $(date '+%Y-%m-%d %H:%M:%S')" >/dev/null 2>&1
+  echo "✅ Committed new changes."
+fi
 
-echo "🚀 Triggering deployment on Render..."
+git push origin main >/dev/null 2>&1
+echo "✅ Code pushed to GitHub (main)."
+
+# --- Trigger Render Deploy ---
+echo "🚀 Triggering Render deployment..."
 DEPLOY_ID=$(curl -s -X POST "$DEPLOY_HOOK" | grep -oE '"id":"[^"]+' | cut -d'"' -f4)
 
 if [ -z "$DEPLOY_ID" ]; then
@@ -31,46 +47,52 @@ if [ -z "$DEPLOY_ID" ]; then
 fi
 
 echo "📦 Deployment ID: $DEPLOY_ID"
-echo "🌍 App URL: https://the13th.onrender.com"
-echo "⏳ Waiting for Render to start building..."
+APP_URL="https://the13th.onrender.com"
+echo "🌍 App URL: $APP_URL"
 
-# Poll Render Deploy API until it's live or failed
+# --- Poll until live or failed ---
+echo "⏳ Waiting for Render to build..."
+sleep 10
+
 while true; do
-  STATUS=$(curl -s "${RENDER_API}/${DEPLOY_ID}" | grep -oE '"status":"[^"]+' | cut -d'"' -f4)
+  STATUS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+    "${RENDER_API}/deploys/${DEPLOY_ID}" | grep -oE '"status":"[^"]+' | cut -d'"' -f4)
 
   case "$STATUS" in
-    "live")
-      echo "✅ Deploy successful! THE13TH is now live at:"
-      echo "   🌍 https://the13th.onrender.com"
+    live)
+      echo "✅ Deployment successful! THE13TH is now live:"
+      echo "   🌍 $APP_URL"
       break
       ;;
-    "failed")
-      echo "❌ Deploy failed. Check Render logs for details."
+    failed)
+      echo "❌ Deployment failed. Check Render logs for details."
       exit 1
       ;;
-    "build_in_progress"|"update_in_progress"|"created"|"pre_deploy_in_progress")
-      echo "🛠️  Build in progress... checking again in 15s."
-      sleep 15
-      ;;
-    "canceled")
-      echo "⚠️  Render marked deploy as canceled (duplicate SHA). Checking if another build is active..."
-      # Find latest active build for this service
-      LATEST_DEPLOY=$(curl -s "https://api.render.com/v1/services/${SERVICE_ID}/deploys" | grep -m1 -oE '"id":"[^"]+' | cut -d'"' -f4)
+    canceled)
+      echo "⚠️  Render labeled this deploy as canceled (duplicate SHA)."
+      echo "🔎 Checking for latest active deploy..."
+      LATEST_DEPLOY=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+        "${RENDER_API}/services/${SERVICE_ID}/deploys" | grep -m1 -oE '"id":"[^"]+' | cut -d'"' -f4)
       if [ "$LATEST_DEPLOY" != "$DEPLOY_ID" ]; then
         echo "↪️  Switching to latest deploy: $LATEST_DEPLOY"
         DEPLOY_ID=$LATEST_DEPLOY
       fi
-      sleep 20
+      sleep 15
+      ;;
+    build_in_progress|update_in_progress|created|pre_deploy_in_progress|queued)
+      echo "🛠️  Build in progress... rechecking in 15s."
+      sleep 15
       ;;
     *)
-      echo "⏸️  Unknown status: $STATUS. Retrying..."
+      echo "⏸️  Waiting... current status: ${STATUS:-unknown}"
       sleep 15
       ;;
   esac
 done
 
-echo "🔎 Running post-deploy verification..."
+# --- Verify after live status ---
+echo "🔎 Running THE13TH verification..."
 bash "$PROJECT_DIR/verify_the13th.sh"
 
-echo "🧭 Deployment and verification complete!"
-echo "✨ THE13TH is up and live at: https://the13th.onrender.com"
+echo "🧭 Deployment & verification complete!"
+echo "✨ THE13TH is live at: $APP_URL"
