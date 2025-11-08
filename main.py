@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-from utils.telemetry import setup_logger, telemetry_middleware
+from utils.telemetry import setup_logger, telemetry_middleware, parse_today_metrics
 
 from dotenv import load_dotenv
 from client_manager import ClientManager
@@ -33,7 +33,19 @@ with open(PLANS_PATH) as f:
     PLANS = json.load(f)
 
 # Logging
-logging.basicConfig(level=logging.INFO)
+LOG_DIR = os.path.join(APP_ROOT, "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+log_file = os.path.join(LOG_DIR, "app.log")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ],
+)
+
 
 # App
 app = FastAPI(title=f"{THEME['name']} — v4.7.0")
@@ -152,6 +164,15 @@ def hello(key: str = Header(None, alias="X-API-Key")):
         "plan": c['plan'],
         "demo_mode": DEMO_MODE
     }
+
+
+@app.get("/api/metrics")
+def metrics():
+    """Return basic operational metrics for today."""
+    return parse_today_metrics()
+
+
+
 # ============================================================
 # 🔧 Rebuilt UsageMiddleware (Stage 9.4)
 # ============================================================
@@ -238,3 +259,39 @@ def hello(key: str = Header(None, alias="X-API-Key")):
     if not c:
         raise HTTPException(status_code=401, detail="Invalid or missing demo key.")
     return {"message": f"hello {c['name']}", "plan": c['plan'], "demo_mode": DEMO_MODE}
+
+# === Stage 13: Magic Link Client Portal ===
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from utils.auth_magic import init_db, create_magic_link, validate_token
+from utils.telemetry import parse_today_metrics
+
+templates = Jinja2Templates(directory="templates")
+init_db()
+
+@app.get("/client/signup", response_class=HTMLResponse)
+def client_signup():
+    return templates.TemplateResponse("client_signup.html", {"request": {}})
+
+@app.get("/api/magic-link")
+def magic_link(email: str):
+    link = create_magic_link(email)
+    return {"email": email, "magic_link": link}
+
+@app.get("/client/login", response_class=HTMLResponse)
+def client_login(token: str):
+    email = validate_token(token)
+    if not email:
+        return HTMLResponse("<h2>Invalid or expired link.</h2>", status_code=401)
+    response = RedirectResponse(url="/client/dashboard")
+    response.set_cookie(key="session_user", value=email, max_age=3600)
+    return response
+
+@app.get("/client/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request):
+    email = request.cookies.get("session_user")
+    if not email:
+        return RedirectResponse(url="/client/signup")
+    metrics = parse_today_metrics()
+    return templates.TemplateResponse("client_dashboard.html",
+        {"request": request, "email": email, "metrics": metrics})
