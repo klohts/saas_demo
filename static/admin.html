@@ -2,20 +2,16 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>THE13TH — Admin Dashboard</title>
+  <title>THE13TH — Admin Dashboard (Demo)</title>
   <link rel="stylesheet" href="/static/the13th.css">
 </head>
 <body class="page">
+  <div class="demo-banner">⚙️ DEMO MODE ACTIVE</div>
   <h1>THE13TH — Admin Dashboard</h1>
   <p class="tag">Manage clients and usage plans.</p>
   <section class="card">
     <h3>List Clients</h3>
     <code>curl -H "X-ADMIN-KEY: the13th-admin" https://the13th.onrender.com/api/admin/clients</code>
-  </section>
-  <section class="card">
-    <h3>Create Client</h3>
-    <code>curl -X POST -H "Content-Type: application/json" -H "X-ADMIN-KEY: the13th-admin" \
-      -d '{"name":"Demo Client","plan":"Free"}' https://the13th.onrender.com/api/admin/clients</code>
   </section>
   <footer><a href="/">← Back Home</a></footer>
 </body>
