@@ -1,29 +1,22 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <title>THE13TH — Admin</title>
-  <style>
-    body { font-family: Arial, sans-serif; background:#f5f5f7; color:#222; padding:24px }
-    .card { background:white; padding:16px; border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,0.06); }
-    h1 { color:#4b2b85 }
-    pre { background:#f0f0f3; padding:12px; border-radius:6px }
-  </style>
+  <meta charset="utf-8">
+  <title>THE13TH — Admin Dashboard</title>
+  <link rel="stylesheet" href="/static/the13th.css">
 </head>
-<body>
-  <div class="card">
-    <h1>THE13TH — Admin</h1>
-    <p>Use the admin API to create and list clients.</p>
-    <h3>Quick curl examples</h3>
-    <pre>
-# List clients
-curl -H "X-ADMIN-KEY: the13th-admin" https://the13th.onrender.com/api/admin/clients
-
-# Create client
-curl -X POST -H "Content-Type: application/json" -H "X-ADMIN-KEY: the13th-admin" \
-  -d '{"name":"Demo Client","plan":"Free"}' \
-  https://the13th.onrender.com/api/admin/clients
-    </pre>
-  </div>
+<body class="page">
+  <h1>THE13TH — Admin Dashboard</h1>
+  <p class="tag">Manage clients and usage plans.</p>
+  <section class="card">
+    <h3>List Clients</h3>
+    <code>curl -H "X-ADMIN-KEY: the13th-admin" https://the13th.onrender.com/api/admin/clients</code>
+  </section>
+  <section class="card">
+    <h3>Create Client</h3>
+    <code>curl -X POST -H "Content-Type: application/json" -H "X-ADMIN-KEY: the13th-admin" \
+      -d '{"name":"Demo Client","plan":"Free"}' https://the13th.onrender.com/api/admin/clients</code>
+  </section>
+  <footer><a href="/">← Back Home</a></footer>
 </body>
 </html>

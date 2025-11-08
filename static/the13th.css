@@ -1,0 +1,11 @@
+body.page { background:#1E1E1E; color:#ECECEC; font-family:'Inter',sans-serif; text-align:center; padding:40px; }
+.logo { width:80px; margin-bottom:16px; filter:drop-shadow(0 0 8px #9D5FFB); }
+h1 { font-size:3em; color:#9D5FFB; margin-bottom:0; }
+.tag { color:#b3b3b3; margin:8px 0 32px; }
+.card { background:#2A2A2A; margin:16px auto; padding:20px; max-width:600px; border-radius:16px;
+        box-shadow:0 0 15px rgba(157,95,251,0.25); }
+.button { display:inline-block; margin:8px; padding:12px 24px; border-radius:8px; text-decoration:none;
+          background:#9D5FFB; color:#fff; transition:0.3s; }
+.button:hover { background:#b076ff; }
+.button.ghost { background:transparent; border:1px solid #9D5FFB; color:#9D5FFB; }
+footer { margin-top:40px; color:#777; }
