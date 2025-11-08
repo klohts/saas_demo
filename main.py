@@ -1,68 +1,112 @@
-# saas_demo/main.py — v4.7.0 (THE13TH, Grey + Purple Edition)
-import os, sys, sqlite3, logging, argparse
-from typing import Optional
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.middleware.cors import CORSMiddleware
+import os
+import sqlite3
+import logging
+from fastapi import FastAPI, Request, HTTPException, Header, Depends
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from datetime import datetime
+from client_manager import ClientManager
+import json
 
-APP_NAME=os.getenv("APP_NAME","saas_demo")
-ENV=os.getenv("ENV","production")
-DEBUG=os.getenv("DEBUG","true").lower() in ("1","true","yes")
-DATABASE_PATH=os.getenv("DATABASE_PATH","./data/app.db")
-BIND_HOST=os.getenv("BIND_HOST","0.0.0.0")
-PORT=int(os.getenv("PORT","8000"))
-DEMO_MODE=os.getenv("DEMO_MODE","true").lower() in ("1","true","yes")
-os.makedirs(os.path.dirname(DATABASE_PATH) or ".",exist_ok=True)
-logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO)
+APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(APP_ROOT, "data", "clients.db")
+PLANS_PATH = os.path.join(APP_ROOT, "config", "plans.json")
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "the13th-admin")
 
-app=FastAPI(title=f"THE13TH — {APP_NAME} (v4.7.0)",debug=DEBUG)
-app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_headers=["*"])
-if os.path.isdir("static"): app.mount("/static",StaticFiles(directory="static"),name="static")
+logging.basicConfig(level=logging.INFO)
+app = FastAPI(title="THE13TH — Client Module v4.6.0")
 
-def get_db():
-    c=sqlite3.connect(DATABASE_PATH); c.row_factory=sqlite3.Row; return c
-def init_db():
-    c=get_db(); x=c.cursor()
-    x.executescript("""CREATE TABLE IF NOT EXISTS billing(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_name TEXT,plan TEXT,quota_limit INT DEFAULT 100,quota_used INT DEFAULT 0,
-    status TEXT DEFAULT 'active',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);""")
-    c.commit(); c.close()
-def create_demo():
-    c=get_db(); x=c.cursor()
-    x.execute("SELECT COUNT(*) c FROM billing")
-    if x.fetchone()["c"]==0:
-        x.execute("INSERT INTO billing(client_name,plan,quota_limit,quota_used,status) VALUES (?,?,?,?,?)",
-                  ("Demo Client","Free",50,0,"active")); c.commit()
-    c.close()
+app.mount("/static", StaticFiles(directory=os.path.join(APP_ROOT, "static")), name="static")
 
-@app.on_event("startup")
-async def startup():
-    init_db()
-    if DEMO_MODE: create_demo()
+with open(PLANS_PATH, "r") as f:
+    PLANS = json.load(f)
 
-@app.get("/",response_class=HTMLResponse)
-async def root():
-    if os.path.exists("static/index.html"): return FileResponse("static/index.html")
-    return HTMLResponse("<h1>THE13TH — saas_demo v4.7.0</h1><p>FastAPI is running.</p>")
+cm = ClientManager(DB_PATH)
+cm.init_db()
+
+class UsageMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/static") or path.startswith("/docs") or path.startswith("/admin"):
+            return await call_next(request)
+
+        if path.startswith("/api/admin"):
+            return await call_next(request)
+
+        api_key = request.headers.get("X-API-Key")
+        if not api_key:
+            if path.startswith("/api") or path.startswith("/billing"):
+                return JSONResponse({"detail": "X-API-Key header required."}, status_code=401)
+            return await call_next(request)
+
+        client = cm.get_client_by_api(api_key)
+        if not client:
+            return JSONResponse({"detail": "Invalid API key."}, status_code=401)
+
+        plan = client.get("plan")
+        quota_limit = client.get("quota_limit", 0)
+        quota_used = client.get("quota_used", 0)
+
+        if quota_limit is not None and quota_limit != -1 and quota_used >= quota_limit:
+            return JSONResponse({"detail": "Quota exceeded."}, status_code=429)
+
+        cm.increment_usage(api_key, 1)
+        return await call_next(request)
+
+app.add_middleware(UsageMiddleware)
+
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    return "<h3>THE13TH — API Platform (Stage 7)</h3><p>See <a href='/admin'>Admin</a></p>"
+
+def check_admin(key: str = Header(None, alias="X-ADMIN-KEY")):
+    if key != ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_ui(key: str = Header(None, alias="X-ADMIN-KEY")):
+    check_admin(key)
+    with open(os.path.join(APP_ROOT, "static", "admin.html"), "r") as f:
+        return HTMLResponse(f.read())
+
+@app.post("/api/admin/clients")
+def create_client(payload: dict, key: str = Header(None, alias="X-ADMIN-KEY")):
+    check_admin(key)
+    name = payload.get("name")
+    plan = payload.get("plan", "Free")
+    if plan not in PLANS:
+        raise HTTPException(status_code=400, detail="Invalid plan")
+    client = cm.create_client(name, plan)
+    return client
+
+@app.get("/api/admin/clients")
+def list_clients(key: str = Header(None, alias="X-ADMIN-KEY")):
+    check_admin(key)
+    return {"clients": cm.list_clients()}
 
 @app.get("/billing/status")
-async def billing_status(client: Optional[str]=None):
-    c=get_db(); x=c.cursor()
-    if client:
-        x.execute("SELECT * FROM billing WHERE client_name=?",(client,))
-        r=x.fetchone(); c.close()
-        if not r: raise HTTPException(404,"Client not found")
-        return dict(r)
-    x.execute("SELECT * FROM billing"); rows=x.fetchall(); c.close()
-    return {"clients":[dict(r) for r in rows]}
+def billing_status(client: str = None, api_key: str = None):
+    if not client and not api_key:
+        raise HTTPException(status_code=400, detail="client or api_key required")
+    if api_key:
+        c = cm.get_client_by_api(api_key)
+    else:
+        c = cm.get_client_by_name(client)
+    if not c:
+        raise HTTPException(status_code=404, detail="client not found")
+    return {
+        "client": c.get("name"),
+        "plan": c.get("plan"),
+        "quota_limit": c.get("quota_limit"),
+        "quota_used": c.get("quota_used")
+    }
 
-def main_cli():
-    import uvicorn
-    parser=argparse.ArgumentParser(); parser.add_argument("--init-db",action="store_true")
-    args=parser.parse_args()
-    if args.init_db: init_db(); create_demo(); print("DB initialized."); sys.exit(0)
-    uvicorn.run("main:app",host=BIND_HOST,port=PORT,reload=DEBUG)
+@app.get("/api/plan")
+def get_plans():
+    return PLANS
 
-if __name__=="__main__": main_cli()
+@app.get("/api/hello")
+def hello(key: str = Header(None, alias="X-API-Key")):
+    client = cm.get_client_by_api(key)
+    return {"message": f"hello {client.get('name')}", "plan": client.get('plan')}

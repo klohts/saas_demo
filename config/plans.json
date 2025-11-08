@@ -1,0 +1,5 @@
+{
+  "Free": { "quota_limit": 50, "description": "Basic free tier (suitable for testing)" },
+  "Pro": { "quota_limit": 1000, "description": "Paid tier with higher limits" },
+  "Enterprise": { "quota_limit": -1, "description": "Unlimited (enterprise)" }
+}

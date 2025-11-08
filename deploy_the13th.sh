@@ -1,25 +1,22 @@
 #!/bin/bash
-# =========================================================
-# 🚀 THE13TH Render Auto-Deploy Script
-# ---------------------------------------------------------
-# Pushes latest code to GitHub, triggers Render deploy hook,
-# and prints colored status messages for easy visibility.
-# Author: Ken | Project: THE13TH | Updated: $(date +'%Y-%m-%d')
-# =========================================================
+# ============================================================
+# 🚀 THE13TH Unified Deploy + Verify Script (v4.6.1)
+# ------------------------------------------------------------
+# Pushes code → triggers Render deploy → verifies live status.
+# Author: Ken | Project: THE13TH | Date: $(date +'%Y-%m-%d')
+# ============================================================
 
-# --- Configuration ---
 REPO_BRANCH="main"
 DEPLOY_HOOK="https://api.render.com/deploy/srv-d475kper433s738vdmr0?key=AQ4JOubHX1g"
 APP_URL="https://the13th.onrender.com"
+ADMIN_KEY="${ADMIN_KEY:-the13th-admin}"
 
-# --- Color codes ---
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# --- Step 1: Git push ---
 echo -e "${BLUE}🔄 Pushing latest changes to GitHub...${NC}"
 git add .
 git commit -m "Auto-deploy update on $(date '+%Y-%m-%d %H:%M:%S')" >/dev/null 2>&1
@@ -32,7 +29,6 @@ else
   exit 1
 fi
 
-# --- Step 2: Trigger Render deploy ---
 echo -e "${YELLOW}🚀 Triggering deployment on Render...${NC}"
 response=$(curl -s -X POST "$DEPLOY_HOOK")
 
@@ -47,6 +43,36 @@ else
   exit 1
 fi
 
-# --- Step 3: Completion ---
-echo -e "${GREEN}✨ All done! Your app will update live at:${NC} ${APP_URL}"
-echo -e "${YELLOW}🕓 Check Render dashboard for real-time logs.${NC}"
+echo -e "${YELLOW}⏳ Waiting 30 seconds for Render to build...${NC}"
+sleep 30
+
+echo -e "${BLUE}🔎 Running live verification checks...${NC}\n"
+
+# --- Check 1: Root ---
+root_status=$(curl -s -o /dev/null -w "%{http_code}" "$APP_URL/")
+if [ "$root_status" = "200" ]; then
+  echo -e "${GREEN}✅ Root OK (${root_status})${NC}"
+else
+  echo -e "${RED}❌ Root failed (${root_status})${NC}"
+fi
+
+# --- Check 2: Plan listing ---
+plan_json=$(curl -s "$APP_URL/api/plan")
+if echo "$plan_json" | grep -q "Free"; then
+  echo -e "${GREEN}✅ Plans endpoint OK${NC}"
+else
+  echo -e "${RED}❌ Plans endpoint failed${NC}"
+  echo "$plan_json"
+fi
+
+# --- Check 3: Admin clients list ---
+client_json=$(curl -s -H "X-ADMIN-KEY: $ADMIN_KEY" "$APP_URL/api/admin/clients")
+if echo "$client_json" | grep -q "clients"; then
+  echo -e "${GREEN}✅ Admin clients endpoint OK${NC}"
+else
+  echo -e "${RED}❌ Admin endpoint failed${NC}"
+  echo "$client_json"
+fi
+
+echo -e "\n${BLUE}🧭 Deployment & Verification complete!${NC}"
+echo -e "🌍 Visit ${YELLOW}$APP_URL${NC} or ${YELLOW}$APP_URL/docs${NC} for API docs."
