@@ -1,100 +1,94 @@
 #!/bin/bash
 # ============================================================
-# 🚀 THE13TH Smart Deploy Script (v4.8.x Final)
+# 🚀 THE13TH Smart Deploy Script  — Stage 10  (Final)
 # ------------------------------------------------------------
-# Pushes latest code to GitHub, triggers Render deploy hook,
-# polls live status via Render API until "live" or "failed",
-# then runs post-deploy verification.
-#
-# Author: Ken | Project: THE13TH
+# Pushes code → triggers Render deploy hook → polls live status
+# Works with either JSON or “Accepted” responses.
 # ============================================================
 
-# --- Config ---
 SERVICE_ID="srv-d475kper433s738vdmr0"
 DEPLOY_HOOK="https://api.render.com/deploy/srv-d475kper433s738vdmr0?key=AQ4JOubHX1g"
 RENDER_API="https://api.render.com/v1"
 PROJECT_DIR="/home/hp/AIAutomationProjects/saas_demo"
+APP_URL="https://the13th.onrender.com"
 
-# 🧩 IMPORTANT: set your Render API key here (for status polling)
-# Generate one at: https://render.com/docs/api
-export RENDER_API_KEY=rnd_EsPVNUxZqMcSI7q9GyODBMaRzHXd
+# 🧩  Add your Render API key here for status polling
+export RENDER_API_KEY="rnd_XXXXXXXXXXXXXXXXXXXXXXXX"
 
-# --- Start ---
-echo "🚀 Starting THE13TH smart deploy..."
+echo "🚀 Starting THE13TH Stage 10 deploy..."
 cd "$PROJECT_DIR" || { echo "❌ Project directory not found!"; exit 1; }
 
-# --- Git push (with empty commit if no changes) ---
-echo "🔄 Checking for local changes..."
+# --- Git push (force empty commit if needed) ---
 git add .
 if git diff-index --quiet HEAD --; then
   git commit --allow-empty -m "Force redeploy $(date '+%Y-%m-%d %H:%M:%S')" >/dev/null 2>&1
-  echo "ℹ️  No local file changes; forcing new deploy commit."
+  echo "ℹ️  No local changes; forced empty commit."
 else
   git commit -m "Auto-deploy $(date '+%Y-%m-%d %H:%M:%S')" >/dev/null 2>&1
-  echo "✅ Committed new changes."
+  echo "✅ Committed code changes."
 fi
-
 git push origin main >/dev/null 2>&1
 echo "✅ Code pushed to GitHub (main)."
 
-# --- Trigger Render Deploy ---
+# --- Trigger deploy hook ---
 echo "🚀 Triggering Render deployment..."
-DEPLOY_ID=$(curl -s -X POST "$DEPLOY_HOOK" | grep -oE '"id":"[^"]+' | cut -d'"' -f4)
+RESPONSE=$(command curl -s -X POST "$DEPLOY_HOOK")
+echo "🔍 Deploy-hook raw response: $RESPONSE"
 
-if [ -z "$DEPLOY_ID" ]; then
-  echo "❌ Failed to trigger deploy. Check deploy hook or network."
+# Parse ID or fallback to Accepted
+if echo "$RESPONSE" | grep -qi '"id"'; then
+  DEPLOY_ID=$(echo "$RESPONSE" | grep -oE '"id":"[^"]+' | cut -d'"' -f4)
+  echo "📦 Deploy ID detected: $DEPLOY_ID"
+elif echo "$RESPONSE" | grep -qi "accepted"; then
+  echo "✅ Render accepted deploy request (202 Accepted)."
+  DEPLOY_ID=""
+else
+  echo "❌ Deploy hook returned unexpected response. Aborting."
   exit 1
 fi
 
-echo "📦 Deployment ID: $DEPLOY_ID"
-APP_URL="https://the13th.onrender.com"
-echo "🌍 App URL: $APP_URL"
+# --- Determine deploy ID if missing (Accepted case) ---
+if [ -z "$DEPLOY_ID" ]; then
+  echo "🔎 Fetching latest active deploy for this service..."
+  DEPLOY_ID=$(command curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+      "${RENDER_API}/services/${SERVICE_ID}/deploys" \
+      | grep -m1 -oE '"id":"[^"]+' | cut -d'"' -f4)
+  echo "📦 Using latest deploy ID: $DEPLOY_ID"
+fi
 
-# --- Poll until live or failed ---
+# --- Poll until live/failed ---
 echo "⏳ Waiting for Render to build..."
 sleep 10
-
 while true; do
-  STATUS=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+  STATUS=$(command curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
     "${RENDER_API}/deploys/${DEPLOY_ID}" | grep -oE '"status":"[^"]+' | cut -d'"' -f4)
 
   case "$STATUS" in
     live)
-      echo "✅ Deployment successful! THE13TH is now live:"
-      echo "   🌍 $APP_URL"
-      break
-      ;;
+      echo "✅ Deployment successful! THE13TH is live at:"
+      echo "   🌍  $APP_URL"
+      break ;;
     failed)
-      echo "❌ Deployment failed. Check Render logs for details."
-      exit 1
-      ;;
+      echo "❌ Deployment failed. Check Render logs."
+      exit 1 ;;
     canceled)
-      echo "⚠️  Render labeled this deploy as canceled (duplicate SHA)."
-      echo "🔎 Checking for latest active deploy..."
-      LATEST_DEPLOY=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
-        "${RENDER_API}/services/${SERVICE_ID}/deploys" | grep -m1 -oE '"id":"[^"]+' | cut -d'"' -f4)
-      if [ "$LATEST_DEPLOY" != "$DEPLOY_ID" ]; then
-        echo "↪️  Switching to latest deploy: $LATEST_DEPLOY"
-        DEPLOY_ID=$LATEST_DEPLOY
-      fi
-      sleep 15
-      ;;
+      echo "⚠️  Deploy marked canceled (duplicate SHA). Checking latest..."
+      DEPLOY_ID=$(command curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+        "${RENDER_API}/services/${SERVICE_ID}/deploys" \
+        | grep -m1 -oE '"id":"[^"]+' | cut -d'"' -f4)
+      sleep 20 ;;
     build_in_progress|update_in_progress|created|pre_deploy_in_progress|queued)
-      echo "🛠️  Build in progress... rechecking in 15s."
-      sleep 15
-      ;;
+      echo "🛠️  Build in progress... rechecking in 15 s."
+      sleep 15 ;;
     *)
       echo "⏸️  Waiting... current status: ${STATUS:-unknown}"
-      sleep 15
-      ;;
+      sleep 15 ;;
   esac
 done
 
-# --- Verify after live status ---
+# --- Verification ---
 echo "🔎 Running THE13TH verification..."
 bash "$PROJECT_DIR/verify_the13th.sh"
 
 echo "🧭 Deployment & verification complete!"
 echo "✨ THE13TH is live at: $APP_URL"
-
-python -m py_compile main.py || { echo "❌ Syntax or indentation error — aborting deploy."; exit 1; }
