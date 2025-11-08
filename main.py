@@ -48,7 +48,7 @@ class UsageMiddleware(BaseHTTPMiddleware):
         if any([
             path.startswith("/static"),
             path.startswith("/docs"),
-            path.startswith("/admin"),
+            path.startswith("/admin"), path.startswith("/api/admin"),
             path.startswith("/api/plan"),
             path.startswith("/docs13"),
             path == "/"
@@ -85,30 +85,53 @@ async def home():
 
 
 @app.get("/docs13", response_class=HTMLResponse)
+@app.get("/docs13", response_class=HTMLResponse)
+
 async def docs13():
-    html = f"""
-    <html><head><title>{THEME['name']} — Docs</title>
-    <link rel='stylesheet' href='/static/the13th.css'></head>
-    <body class='page'>
-      <h1 id="brand">{THEME['name']}</h1>
-      <p class='tag'>{THEME['tagline']}</p>
-      <section class='card'>
+
+    content = f"""
+
+    <html><head><title>{THEME["name"]} — Docs</title>
+
+    <link rel=stylesheet href=/static/the13th.css></head>
+
+    <body class=page>
+
+      <div class=demo-banner>⚙️ DEMO MODE ACTIVE</div>
+
+      <h1>{THEME["name"]} API Quick-Start</h1>
+
+      <p class=tag>{THEME["tagline"]}</p>
+
+      <section class=card>
+
         <h3>Authentication</h3>
-        <code>Header: X-API-Key: &lt;client_api_key&gt;</code><br/>
-        <code>Header: X-MASTER-API-Key: &lt;master_key_optional&gt;</code>
+
+        <code>Header: X-API-Key: &lt;client_api_key&gt;</code>
+
       </section>
-      <section class='card'>
+
+      <section class=card>
+
         <h3>Endpoints</h3>
+
         <ul>
-          <li><b>GET</b> /api/plan</li>
-          <li><b>GET</b> /billing/status</li>
-          <li><b>GET</b> /api/hello</li>
+
+          <li><b>GET</b> /api/plan — Available Plans</li>
+
+          <li><b>GET</b> /billing/status — Client quota status</li>
+
+          <li><b>GET</b> /api/hello — Example protected route</li>
+
         </ul>
+
       </section>
-      <footer><a href='/'>← Back</a></footer>
-    </body></html>
-    """
-    return HTMLResponse(html)
+
+      <footer><a href=/>← Back to Home</a></footer>
+
+    </body></html>"""
+
+    return HTMLResponse(content)
 
 
 @app.get("/api/plan")
@@ -116,13 +139,6 @@ def get_plans():
     return PLANS
 
 # ───────── Protected Routes ─────────
-@app.get("/api/hello")
-def hello(api_key: str = Header(None, alias="X-API-Key")):
-    client = cm.get_client_by_api(api_key)
-    if not client:
-        raise HTTPException(401, "Invalid API key")
-    return {"message": f"hello {client['name']}", "plan": client["plan"]}
-
 
 @app.get("/billing/status")
 def billing_status(api_key: str = Header(None, alias="X-API-Key")):
@@ -144,3 +160,21 @@ def list_clients(key: str = Header(None, alias="X-ADMIN-KEY")):
     if key != ADMIN_KEY:
         raise HTTPException(403, "Invalid admin key")
     return {"clients": cm.list_clients()}
+
+@app.get("/api/hello")
+def hello(key: str = Header(None, alias="X-API-Key")):
+    """Returns client info and confirms demo mode."""
+    if DEMO_MODE and not key:
+        demo_key_path = os.path.join(APP_ROOT, "tmp_demo_api_key.txt")
+        if os.path.exists(demo_key_path):
+            key = open(demo_key_path).read().strip()
+    if not key:
+        raise HTTPException(status_code=401, detail="X-API-Key header required.")
+    c = cm.get_client_by_api(key)
+    if not c:
+        raise HTTPException(status_code=401, detail="Invalid or missing demo key.")
+    return {
+        "message": f"hello {c['name']}",
+        "plan": c['plan'],
+        "demo_mode": DEMO_MODE
+    }
