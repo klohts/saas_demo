@@ -4,6 +4,7 @@ from datetime import datetime
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from utils.patch_operator_audit_inject import patch_operator_audit
 from utils.patch_adminauth_fix import register_admin_routes
 from starlette.middleware.base import BaseHTTPMiddleware
 from utils.telemetry import setup_logger, telemetry_middleware, parse_today_metrics
@@ -393,3 +394,4 @@ def toggle_demo(request: Request):
     return HTMLResponse(f"<h3>🟣 Demo mode {status}.</h3><a href='/admin/tools'>Back</a>")
 
 register_admin_routes(app, templates)
+patch_operator_audit(app)
