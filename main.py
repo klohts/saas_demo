@@ -22,6 +22,9 @@ THEME_PATH = os.path.join(APP_ROOT, "config", "theme.json")
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "the13th-admin")
 MASTER_API_KEY = os.environ.get("API_KEY")  # Optional global key
 
+# Demo mode flag
+DEMO_MODE = os.environ.get("DEMO_MODE", "1") == "1"
+
 # Load configs
 with open(THEME_PATH) as f:
     THEME = json.load(f)
@@ -128,10 +131,12 @@ def list_clients(key: str = Header(None, alias="X-ADMIN-KEY")):
 @app.get("/api/hello")
 def hello(key: str = Header(None, alias="X-API-Key")):
     """Returns client info and confirms demo mode."""
-    if DEMO_MODE and not key:
-        demo_key_path = os.path.join(APP_ROOT, "tmp_demo_api_key.txt")
-        if os.path.exists(demo_key_path):
-            key = open(demo_key_path).read().strip()
+    demo_path = os.path.join(APP_ROOT, "data", "demo_api_key.txt")
+    if DEMO_MODE and not key and os.path.exists(demo_path):
+        try:
+            key = open(demo_path).read().strip()
+        except Exception as e:
+            logging.error(f"❌ Could not read demo key: {e}")
     if not key:
         raise HTTPException(status_code=401, detail="X-API-Key header required.")
     c = cm.get_client_by_api(key)
@@ -142,7 +147,6 @@ def hello(key: str = Header(None, alias="X-API-Key")):
         "plan": c['plan'],
         "demo_mode": DEMO_MODE
     }
-
 # ============================================================
 # 🔧 Rebuilt UsageMiddleware (Stage 9.4)
 # ============================================================
@@ -177,18 +181,6 @@ class UsageMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(UsageMiddleware)
-
-# --- Demo client bootstrap (persistent storage) ---
-    """Returns client info and confirms demo mode."""
-    demo_path = os.path.join(APP_ROOT, "data", "demo_api_key.txt")
-    if DEMO_MODE and (not key) and os.path.exists(demo_path):
-        key = open(demo_path).read().strip()
-    if not key:
-        raise HTTPException(status_code=401, detail="X-API-Key header required.")
-    c = cm.get_client_by_api(key)
-    if not c:
-        raise HTTPException(status_code=401, detail="Invalid or missing demo key.")
-    return {"message": f"hello {c['name']}", "plan": c['plan'], "demo_mode": DEMO_MODE}
 
 # --- Demo client bootstrap (safe persistent storage) ---
 
