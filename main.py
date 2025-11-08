@@ -40,42 +40,6 @@ cm = ClientManager(DB_PATH)
 cm.init_db()
 
 # ───────── Middleware ─────────
-class UsageMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        path = request.url.path
-
-        # Public routes bypass
-        if any([
-            path.startswith("/static"),
-            path.startswith("/docs"),
-            path.startswith("/admin"), path.startswith("/api/admin"),
-            path.startswith("/api/plan"),
-            path.startswith("/docs13"),
-            path == "/"
-        ]):
-            return await call_next(request)
-
-        api_key = request.headers.get("X-API-Key") or request.headers.get("X-MASTER-API-Key")
-        if not api_key:
-            return JSONResponse({"detail": "X-API-Key header required."}, status_code=401)
-
-        # Allow master key bypass
-        if MASTER_API_KEY and api_key == MASTER_API_KEY:
-            return await call_next(request)
-
-        # Validate client key
-        client = cm.get_client_by_api(api_key)
-        if not client:
-            return JSONResponse({"detail": "Invalid API key."}, status_code=401)
-
-        # Quota check
-        if client["quota_limit"] != -1 and client["quota_used"] >= client["quota_limit"]:
-            return JSONResponse({"detail": "Quota exceeded."}, status_code=429)
-
-        cm.increment_usage(api_key, 1)
-        return await call_next(request)
-
-app.add_middleware(UsageMiddleware)
 
 # ───────── Public Routes ─────────
 @app.get("/", response_class=HTMLResponse)
@@ -178,3 +142,38 @@ def hello(key: str = Header(None, alias="X-API-Key")):
         "plan": c['plan'],
         "demo_mode": DEMO_MODE
     }
+
+# ============================================================
+# 🔧 Rebuilt UsageMiddleware (Stage 9.4)
+# ============================================================
+from starlette.middleware.base import BaseHTTPMiddleware
+class UsageMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        path = request.url.path
+        # Explicit exclusions: anything public, admin, docs, or demo
+        excluded_paths = [
+            "/",
+            "/docs",
+            "/docs13",
+            "/static",
+            "/admin",
+            "/api/admin",
+            "/api/plan"
+        ]
+        if any(path.startswith(p) for p in excluded_paths):
+            return await call_next(request)
+
+        api_key = request.headers.get("X-API-Key")
+        if not api_key:
+            return JSONResponse({"detail": "X-API-Key header required."}, status_code=401)
+        client = cm.get_client_by_api(api_key)
+        if not client:
+            return JSONResponse({"detail": "Invalid API key."}, status_code=401)
+
+        quota_limit, quota_used = client.get("quota_limit", 0), client.get("quota_used", 0)
+        if quota_limit != -1 and quota_used >= quota_limit:
+            return JSONResponse({"detail": "Quota exceeded."}, status_code=429)
+        cm.increment_usage(api_key, 1)
+        return await call_next(request)
+
+app.add_middleware(UsageMiddleware)
