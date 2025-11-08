@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <title>THE13TH — Operator Tools</title>
+  <link rel="stylesheet" href="/static/the13th.css">
+  <style>
+    .tools { display: flex; flex-direction: column; gap: 1em; max-width: 400px; margin: 3em auto; }
+    button { padding: 0.8em; border: none; border-radius: 10px; cursor: pointer; font-size: 1em; }
+    .reset { background: #f87171; color: #fff; }
+    .filter { background: #3b82f6; color: #fff; }
+    .toggle { background: #10b981; color: #fff; }
+    a { color: #a855f7; text-decoration: none; }
+  </style>
+</head>
+<body class="page">
+  <h1>🧠 THE13TH Operator Panel</h1>
+  <div class="tools">
+    <form action="/admin/reset-logs" method="post"><button class="reset">🧹 Reset Logs</button></form>
+    <form action="/admin/filter-emails" method="post"><button class="filter">📧 Filter Failed Emails</button></form>
+    <form action="/admin/toggle-demo" method="post"><button class="toggle">⚙️ Toggle Demo Mode</button></form>
+  </div>
+  <footer><a href="/admin/overview">← Back to Dashboard</a></footer>
+</body>
+</html>
