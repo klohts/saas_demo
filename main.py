@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+from utils.telemetry import setup_logger, telemetry_middleware
 
 from dotenv import load_dotenv
 from client_manager import ClientManager
@@ -37,6 +38,10 @@ logging.basicConfig(level=logging.INFO)
 # App
 app = FastAPI(title=f"{THEME['name']} — v4.7.0")
 app.mount("/static", StaticFiles(directory=os.path.join(APP_ROOT, "static")), name="static")
+
+# Setup telemetry
+setup_logger()
+telemetry_middleware(app)
 
 # DB init
 cm = ClientManager(DB_PATH)

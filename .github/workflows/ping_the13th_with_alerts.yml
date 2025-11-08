@@ -1,0 +1,70 @@
+name: 🛰️ Keep THE13TH Alive + API Health Check (with Alerts)
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-and-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+
+      - name: 🌍 Ping root
+        id: ping_root
+        run: |
+          echo "Pinging root..."
+          if curl -fsS https://the13th.onrender.com/ -o /dev/null; then
+            echo "root_ok=true" >> $GITHUB_OUTPUT
+          else
+            echo "root_ok=false" >> $GITHUB_OUTPUT
+            echo "Root ping failed" >&2
+            exit 1
+          fi
+
+      - name: 🧠 Check /api/plan JSON
+        id: check_api
+        run: |
+          echo "Checking /api/plan..."
+          RESPONSE=$(curl -fsS https://the13th.onrender.com/api/plan || true)
+          echo "response=$RESPONSE" >> $GITHUB_OUTPUT
+          if echo "$RESPONSE" | grep -q '"Free"' && echo "$RESPONSE" | grep -q '"Pro"'; then
+            echo "api_ok=true" >> $GITHUB_OUTPUT
+          else
+            echo "api_ok=false" >> $GITHUB_OUTPUT
+            echo "API check failed. Response: $RESPONSE" >&2
+            exit 1
+          fi
+
+      # If either step exits non-zero the job fails and the notify-on-failure step below runs
+      - name: 🔔 Notify Slack & Discord on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          REPO="${{ github.repository }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          TIMESTAMP="$(date -u +"%Y-%m-%d %H:%M:%SZ")"
+          # Build a simple failure summary
+          MSG="*THE13TH ping job FAILED*\n• Repo: ${REPO}\n• Workflow: ${GITHUB_WORKFLOW}\n• Run: ${RUN_URL}\n• Time(UTC): ${TIMESTAMP}\n\n*Last API response (if available):*\n${{ steps.check_api.outputs.response }}"
+
+          # Slack payload
+          SLACK_PAYLOAD=$( jq -n --arg text "$MSG" '{text:$text}' )
+          # Discord payload (content)
+          DISCORD_PAYLOAD=$( jq -n --arg content "$MSG" '{content:$content}' )
+
+          # Send to Slack (ignore failures to avoid masking original failure)
+          if [ -n "$SLACK_WEBHOOK" ]; then
+            curl -s -X POST -H 'Content-type: application/json' --data "$SLACK_PAYLOAD" "$SLACK_WEBHOOK" || true
+          else
+            echo "No SLACK_WEBHOOK secret configured"
+          fi
+
+          # Send to Discord
+          if [ -n "$DISCORD_WEBHOOK" ]; then
+            curl -s -X POST -H 'Content-type: application/json' --data "$DISCORD_PAYLOAD" "$DISCORD_WEBHOOK" || true
+          else
+            echo "No DISCORD_WEBHOOK secret configured"
+          fi
