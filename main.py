@@ -295,3 +295,15 @@ def dashboard(request: Request):
     metrics = parse_today_metrics()
     return templates.TemplateResponse("client_dashboard.html",
         {"request": request, "email": email, "metrics": metrics})
+
+# === Stage 13.3: Email Log Viewer ===
+@app.get("/admin/email-log", response_class=HTMLResponse)
+def view_email_log(request: Request):
+    from pathlib import Path
+    log_path = Path("logs/email_delivery.log")
+    if not log_path.exists():
+        content = "No log entries yet."
+    else:
+        content = log_path.read_text()[-5000:]  # last 5k chars
+    return templates.TemplateResponse("email_log.html",
+        {"request": request, "log_content": content})
