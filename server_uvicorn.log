@@ -1,0 +1,80 @@
+INFO:     Will watch for changes in these directories: ['/home/hp/AIAutomationProjects/saas_demo']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [286397] using WatchFiles
+INFO:     Started server process [286400]
+INFO:     Waiting for application startup.
+2025-11-09 15:11:49,093 INFO DB initialized at admin_intel.db
+2025-11-09 15:11:49,095 INFO Admin Intelligence worker started (poll interval 5.0s)
+INFO:     Application startup complete.
+INFO:     127.0.0.1:55788 - "WebSocket /intel/stream" [accepted]
+2025-11-09 15:11:50,196 INFO WS client connected
+INFO:     connection open
+Email queue worker started
+Email queue worker started
+Email queue worker started
+INFO:     127.0.0.1:53008 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53008 - "GET /assets/index-a35a0f3d.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52994 - "GET /assets/index-04490b11.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52994 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52994 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52994 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52994 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52994 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52994 - "GET /assets/index-a35a0f3d.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:50342 - "GET /assets/index-04490b11.css HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:50342 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50342 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50342 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50342 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59898 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38616 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38624 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44952 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56846 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56860 - "GET /admin HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56860 - "GET /assets/index-a35a0f3d.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:56876 - "GET /assets/index-04490b11.css HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:56876 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58524 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58524 - "GET /admin HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58524 - "GET /assets/index-a35a0f3d.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:58536 - "GET /assets/index-04490b11.css HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:52006 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52020 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41396 - "GET /admin HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41396 - "GET /assets/index-a35a0f3d.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:41396 - "GET /assets/index-04490b11.css HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:41408 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41408 - "GET /intel HTTP/1.1" 200 OK
+INFO:     connection closed
+2025-11-09 15:14:10,385 INFO WS cleanup complete
+INFO:     127.0.0.1:52882 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:37668 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47442 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60348 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60678 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48606 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57352 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34108 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34780 - "GET /vite.svg HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:47758 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33066 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35192 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51496 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50194 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48276 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42494 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36228 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54852 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39634 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38572 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35706 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45986 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60388 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59388 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38454 - "GET /admin/events HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [286400]
+INFO:     Stopping reloader process [286397]

@@ -1,0 +1,284 @@
+from fastapi import FastAPI, Request, Header, HTTPException, Form, Depends
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+import os, json, logging
+from datetime import datetime
+from dotenv import load_dotenv
+from pathlib import Path
+
+# === Internal Modules ===
+from utils.telemetry import setup_logger, telemetry_middleware, parse_today_metrics
+from utils.auth_magic import (
+    init_db, create_magic_link, validate_token,
+    verify_admin_credentials, create_admin_session, auth_admin
+)
+from client_manager import ClientManager
+
+# === Environment & Config ===
+load_dotenv()
+
+APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(APP_ROOT, "data", "clients.db")
+PLANS_PATH = os.path.join(APP_ROOT, "config", "plans.json")
+THEME_PATH = os.path.join(APP_ROOT, "config", "theme.json")
+LOG_DIR = os.path.join(APP_ROOT, "logs")
+
+os.makedirs(LOG_DIR, exist_ok=True)
+with open(THEME_PATH) as f: THEME = json.load(f)
+with open(PLANS_PATH) as f: PLANS = json.load(f)
+
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "the13th-admin")
+MASTER_API_KEY = os.environ.get("API_KEY")
+DEMO_MODE = os.environ.get("DEMO_MODE", "1") == "1"
+
+# === Logging ===
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.FileHandler(os.path.join(LOG_DIR, "app.log")),
+        logging.StreamHandler()
+    ],
+)
+
+# === App Init ===
+app = FastAPI(title=f"{THEME['name']} — v13.7.3")
+app.mount("/static", StaticFiles(directory=os.path.join(APP_ROOT, "static")), name="static")
+templates = Jinja2Templates(directory="templates")
+
+# ✅ FIX: Make datetime available inside all Jinja templates
+templates.env.globals["datetime"] = datetime
+
+setup_logger()
+telemetry_middleware(app)
+
+# === DB Init ===
+cm = ClientManager(DB_PATH)
+cm.init_db()
+init_db()
+
+# === Middleware (Usage Tracking) ===
+from starlette.middleware.base import BaseHTTPMiddleware
+class UsageMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        path = request.url.path
+        excluded = ["/", "/docs", "/docs13", "/static", "/admin", "/api/admin", "/api/plan"]
+        if any(path.startswith(p) for p in excluded):
+            return await call_next(request)
+
+        api_key = request.headers.get("X-API-Key")
+        if not api_key:
+            return JSONResponse({"detail": "X-API-Key header required."}, status_code=401)
+
+        client = cm.get_client_by_api(api_key)
+        if not client:
+            return JSONResponse({"detail": "Invalid API key."}, status_code=401)
+
+        quota_limit, quota_used = client.get("quota_limit", 0), client.get("quota_used", 0)
+        if quota_limit != -1 and quota_used >= quota_limit:
+            return JSONResponse({"detail": "Quota exceeded."}, status_code=429)
+
+        cm.increment_usage(api_key, 1)
+        return await call_next(request)
+
+app.add_middleware(UsageMiddleware)
+
+# === Demo Client Bootstrap ===
+def ensure_demo_client():
+    clients = cm.list_clients()
+    demo_dir = os.path.join(APP_ROOT, "data")
+    demo_path = os.path.join(demo_dir, "demo_api_key.txt")
+    os.makedirs(demo_dir, exist_ok=True)
+    try:
+        if not clients:
+            demo = cm.create_client("Demo Client", "Free")
+            with open(demo_path, "w") as f:
+                f.write(demo["api_key"])
+            logging.info(f"✅ Demo client created with API key: {demo['api_key']}")
+        elif not os.path.exists(demo_path):
+            demo = clients[0]
+            with open(demo_path, "w") as f:
+                f.write(demo["api_key"])
+            logging.info(f"♻️ Restored demo key from DB: {demo['api_key']}")
+        else:
+            logging.info("🟣 Demo client already exists; skipping creation.")
+    except Exception as e:
+        logging.error(f"❌ Failed to initialize demo client: {e}")
+
+if DEMO_MODE:
+    ensure_demo_client()
+
+# === Public Pages ===
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    with open(os.path.join(APP_ROOT, "static", "index.html")) as f:
+        return HTMLResponse(f.read())
+
+@app.get("/docs13", response_class=HTMLResponse)
+async def docs13():
+    content = f"""
+    <html><head><title>{THEME["name"]} — Docs</title>
+    <link rel=stylesheet href=/static/the13th.css></head>
+    <body class=page>
+      <div class=demo-banner>⚙️ DEMO MODE ACTIVE</div>
+      <h1>{THEME["name"]} API Quick-Start</h1>
+      <p class=tag>{THEME["tagline"]}</p>
+      <section class=card><h3>Authentication</h3>
+      <code>Header: X-API-Key: &lt;client_api_key&gt;</code></section>
+      <section class=card><h3>Endpoints</h3>
+      <ul><li><b>GET</b> /api/plan</li>
+          <li><b>GET</b> /billing/status</li>
+          <li><b>GET</b> /api/hello</li></ul></section>
+      <footer><a href=/>← Back to Home</a></footer>
+    </body></html>"""
+    return HTMLResponse(content)
+
+# === API ===
+@app.get("/api/plan")
+def get_plans(): return PLANS
+
+@app.get("/billing/status")
+def billing_status(api_key: str = Header(None, alias="X-API-Key")):
+    client = cm.get_client_by_api(api_key)
+    if not client: raise HTTPException(404, "client not found")
+    return {
+        "client": client["name"],
+        "plan": client["plan"],
+        "quota": client["quota_limit"],
+        "used": client["quota_used"],
+        "remaining": "∞" if client["quota_limit"] == -1 else max(0, client["quota_limit"] - client["quota_used"])
+    }
+
+@app.get("/api/hello")
+def hello(key: str = Header(None, alias="X-API-Key")):
+    demo_path = os.path.join(APP_ROOT, "data", "demo_api_key.txt")
+    if DEMO_MODE and not key and os.path.exists(demo_path):
+        key = open(demo_path).read().strip()
+    if not key:
+        raise HTTPException(401, "X-API-Key header required.")
+    c = cm.get_client_by_api(key)
+    if not c:
+        raise HTTPException(401, "Invalid or missing demo key.")
+    return {"message": f"hello {c['name']}", "plan": c['plan'], "demo_mode": DEMO_MODE}
+
+@app.get("/api/metrics")
+def metrics(): return parse_today_metrics()
+
+# === Magic Link Client Portal ===
+@app.get("/client/signup", response_class=HTMLResponse)
+def client_signup(request: Request):
+    return templates.TemplateResponse("client_signup.html", {"request": request})
+
+
+@app.get("/api/magic-link")
+def magic_link(email: str):
+    return {"email": email, "magic_link": create_magic_link(email)}
+
+@app.get("/client/login", response_class=HTMLResponse)
+def client_login(token: str):
+    email = validate_token(token)
+    if not email:
+        return HTMLResponse("<h2>Invalid or expired link.</h2>", status_code=401)
+    response = RedirectResponse(url="/client/dashboard")
+    response.set_cookie("session_user", email, max_age=3600)
+    return response
+
+@app.get("/client/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request):
+    email = request.cookies.get("session_user")
+    if not email:
+        return RedirectResponse("/client/signup")
+    metrics = parse_today_metrics()
+    return templates.TemplateResponse("client_dashboard.html", {"request": request, "email": email, "metrics": metrics})
+
+# === Admin Dashboard & Logs ===
+@app.get("/admin/overview", response_class=HTMLResponse)
+def admin_dashboard(request: Request, session_token: str = Depends(auth_admin)):
+    from datetime import datetime, timedelta
+    metrics = parse_today_metrics()
+    log_path = Path("logs/email_delivery.log")
+    log_text = log_path.read_text()[-3000:] if log_path.exists() else "No emails logged yet."
+    sent = failed = 0
+    for line in log_text.splitlines():
+        if "SENT" in line: sent += 1
+        elif "FAILED" in line: failed += 1
+    email_stats = {"sent": sent, "failed": failed}
+    now = datetime.utcnow()
+    hours = [(now - timedelta(hours=i)).strftime("%H:%M") for i in range(12)][::-1]
+    data = [max(0, metrics["requests_today"] // 12 + i % 3) for i in range(12)]
+    return templates.TemplateResponse("admin_dashboard.html", {
+        "request": request,
+        "metrics": metrics,
+        "email_stats": email_stats,
+        "chart_labels": json.dumps(hours),
+        "chart_data": json.dumps(data),
+        "email_log": log_text
+    })
+
+@app.get("/admin/email-log", response_class=HTMLResponse)
+def view_email_log(request: Request, session_token: str = Depends(auth_admin)):
+    log_path = Path("logs/email_delivery.log")
+    content = log_path.read_text()[-5000:] if log_path.exists() else "No log entries yet."
+    return templates.TemplateResponse("email_log.html", {"request": request, "log_content": content})
+
+# === Admin Auth ===
+@app.get("/admin/login", response_class=HTMLResponse)
+def admin_login_page(request: Request):
+    return templates.TemplateResponse("admin_login.html", {"request": request})
+
+@app.post("/admin/login")
+async def admin_login_submit(request: Request, email: str = Form(...), password: str = Form(...)):
+    if verify_admin_credentials(email, password):
+        token = create_admin_session()
+        resp = RedirectResponse("/admin/tools", status_code=303)
+        resp.set_cookie("session_token", token, httponly=True, max_age=6*3600)
+        return resp
+    return templates.TemplateResponse("admin_login.html", {"request": request, "error": "Invalid credentials"}, status_code=401)
+
+@app.get("/admin/logout")
+def admin_logout():
+    resp = RedirectResponse("/admin/login", status_code=303)
+    resp.delete_cookie("session_token")
+    return resp
+
+@app.get("/admin/tools", response_class=HTMLResponse)
+def admin_tools(request: Request, session_token: str = Depends(auth_admin)):
+    return templates.TemplateResponse("admin_tools.html", {"request": request})
+
+@app.post("/admin/reset-logs")
+def reset_logs(session_token: str = Depends(auth_admin)):
+    for f in Path("logs").glob("*.log"): f.write_text("")
+    return RedirectResponse("/admin/tools", status_code=303)
+
+@app.post("/admin/filter-emails")
+def filter_failed_emails(session_token: str = Depends(auth_admin)):
+    log_path = Path("logs/email_delivery.log")
+    if log_path.exists():
+        failed = [l for l in log_path.read_text().splitlines() if "FAILED" in l]
+        log_path.write_text("\n".join(failed))
+    return RedirectResponse("/admin/tools", status_code=303)
+
+@app.post("/admin/toggle-demo")
+def toggle_demo(session_token: str = Depends(auth_admin)):
+    global DEMO_MODE
+    DEMO_MODE = not DEMO_MODE
+    status = "activated" if DEMO_MODE else "deactivated"
+    return HTMLResponse(f"<h3>🟣 Demo mode {status}.</h3><a href='/admin/tools'>Back</a>")
+
+@app.get("/admin/audit-log", response_class=HTMLResponse)
+def view_audit_log(request: Request, export: bool = False, session_token: str = Depends(auth_admin)):
+    log_path = Path("logs/admin_audit.log")
+    entries = []
+    if log_path.exists():
+        for line in log_path.read_text().splitlines():
+            try: entries.append(json.loads(line.strip()))
+            except: pass
+    if export:
+        return JSONResponse(entries)
+    return templates.TemplateResponse("admin_audit_log.html", {"request": request, "logs": entries})
+
+@app.post("/admin/clear-audit")
+def clear_audit_logs(session_token: str = Depends(auth_admin)):
+    Path("logs/admin_audit.log").write_text("")
+    return RedirectResponse("/admin/audit-log", status_code=303)

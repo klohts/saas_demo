@@ -1,0 +1,58 @@
+# Auto-generated secure auth
+import os, sqlite3, time, secrets, hashlib, hmac
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = str(DATA_DIR / "sessions.db")
+
+PBKDF2_ITER=150000
+SALT='the13th-default-salt'.encode()
+
+def hash_pwd(p): return hashlib.pbkdf2_hmac("sha256", p.encode(), SALT, PBKDF2_ITER).hex()
+def verify_pwd(p, h): return hmac.compare_digest(hash_pwd(p), h)
+
+def get_admin_hash():
+    return os.environ.get("ADMIN_PASSWORD_HASH") or hash_pwd(os.environ.get("ADMIN_PASSWORD","The13th@2025"))
+
+def init_db():
+    with sqlite3.connect(DB_PATH) as c:
+        # Ensure tables exist
+        c.execute("CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, email TEXT, role TEXT, created_at TEXT, expires_at TEXT)")
+        c.execute("CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY, ts TEXT, actor TEXT, event TEXT, details TEXT)")
+
+        # Ensure columns exist (safe migration)
+        try: c.execute("ALTER TABLE sessions ADD COLUMN email TEXT")
+        except: pass
+        try: c.execute("ALTER TABLE sessions ADD COLUMN role TEXT")
+        except: pass
+        try: c.execute("ALTER TABLE sessions ADD COLUMN created_at TEXT")
+        except: pass
+        try: c.execute("ALTER TABLE sessions ADD COLUMN expires_at TEXT")
+        except: pass
+
+        c.commit()
+
+init_db()
+
+def log_audit(actor,event,details=""):
+    with sqlite3.connect(DB_PATH) as c:
+        c.execute("INSERT INTO audit_logs(ts,actor,event,details) VALUES(?,?,?,?)",
+        (datetime.now(timezone.utc).isoformat(),actor,event,details)); c.commit()
+
+def verify_admin(email,pwd):
+    return email.lower()==os.environ.get("ADMIN_EMAIL","admin@the13th.com").lower() and verify_pwd(pwd,get_admin_hash())
+
+def create_session():
+    t,se=secrets.token_urlsafe(32),datetime.now(timezone.utc)
+    with sqlite3.connect(DB_PATH) as c:
+        c.execute("INSERT OR REPLACE INTO sessions VALUES(?,?,?,?,?)",
+        (t,os.environ.get("ADMIN_EMAIL","admin@the13th.com"),"admin",se.isoformat(),(se+timedelta(hours=6)).timestamp())); c.commit()
+    log_audit(os.environ.get("ADMIN_EMAIL"),"login","created session")
+    return t
+
+def kill_session(t):
+    with sqlite3.connect(DB_PATH) as c:
+        c.execute("DELETE FROM sessions WHERE token=?", (t,)); c.commit()
+    log_audit("admin","logout","session killed")

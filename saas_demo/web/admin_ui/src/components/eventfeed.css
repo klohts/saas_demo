@@ -1,0 +1,45 @@
+.event-list {
+  max-height: 600px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.event-row {
+  background: #111;
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 10px;
+  opacity: 0;
+  animation: fadeIn 0.4s ease forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.event-row.flash {
+  animation: flash 1s ease;
+  border-left: 4px solid #ffcc00;
+}
+
+@keyframes flash {
+  0% { background: #222; }
+  15% { background: #fffae6; }
+  100% { background: #111; }
+}
+
+.meta {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-top: 2px;
+}
+
+.payload {
+  font-size: 11px;
+  margin-top: 6px;
+  background: #000;
+  padding: 6px;
+  border-radius: 4px;
+  overflow-x: auto;
+}

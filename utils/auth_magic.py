@@ -1,61 +1,127 @@
-import secrets, sqlite3, time, os
-from datetime import datetime, timedelta
+# Auto-generated secure auth
+import os, sqlite3, time, secrets, hashlib, hmac
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "sessions.db")
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = str(DATA_DIR / "sessions.db")
+
+PBKDF2_ITER=150000
+SALT='the13th-default-salt'.encode()
+
+def hash_pwd(p): return hashlib.pbkdf2_hmac("sha256", p.encode(), SALT, PBKDF2_ITER).hex()
+def verify_pwd(p, h): return hmac.compare_digest(hash_pwd(p), h)
+
+def get_admin_hash():
+    return os.environ.get("ADMIN_PASSWORD_HASH") or hash_pwd(os.environ.get("ADMIN_PASSWORD","The13th@2025"))
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    with sqlite3.connect(DB_PATH) as c:
+        # Ensure tables exist
+        c.execute("CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, email TEXT, role TEXT, created_at TEXT, expires_at TEXT)")
+        c.execute("CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY, ts TEXT, actor TEXT, event TEXT, details TEXT)")
+
+        # Ensure columns exist (safe migration)
+        try: c.execute("ALTER TABLE sessions ADD COLUMN email TEXT")
+        except: pass
+        try: c.execute("ALTER TABLE sessions ADD COLUMN role TEXT")
+        except: pass
+        try: c.execute("ALTER TABLE sessions ADD COLUMN created_at TEXT")
+        except: pass
+        try: c.execute("ALTER TABLE sessions ADD COLUMN expires_at TEXT")
+        except: pass
+
+        c.commit()
+
+init_db()
+
+def log_audit(actor,event,details=""):
+    with sqlite3.connect(DB_PATH) as c:
+        c.execute("INSERT INTO audit_logs(ts,actor,event,details) VALUES(?,?,?,?)",
+        (datetime.now(timezone.utc).isoformat(),actor,event,details)); c.commit()
+
+def verify_admin(email,pwd):
+    return email.lower()==os.environ.get("ADMIN_EMAIL","admin@the13th.com").lower() and verify_pwd(pwd,get_admin_hash())
+
+def create_session():
+    t,se=secrets.token_urlsafe(32),datetime.now(timezone.utc)
+    with sqlite3.connect(DB_PATH) as c:
+        c.execute("INSERT OR REPLACE INTO sessions VALUES(?,?,?,?,?)",
+        (t,os.environ.get("ADMIN_EMAIL","admin@the13th.com"),"admin",se.isoformat(),(se+timedelta(hours=6)).timestamp())); c.commit()
+    log_audit(os.environ.get("ADMIN_EMAIL"),"login","created session")
+    return t
+
+def kill_session(t):
+    with sqlite3.connect(DB_PATH) as c:
+        c.execute("DELETE FROM sessions WHERE token=?", (t,)); c.commit()
+    log_audit("admin","logout","session killed")
+
+def verify_admin_credentials(password: str) -> bool:
+    import os, hashlib
+    expected = os.getenv("ADMIN_PASSWORD_HASH")
+    if not expected:
+        return False
+    return hashlib.sha256(password.encode()).hexdigest() == expected
+
+def create_admin_session():
+    import os, sqlite3, secrets
+    from datetime import datetime, timedelta
+    token = secrets.token_urlsafe(32)
+    db = os.path.join(os.path.dirname(__file__), "..", "sessions.db")
+    conn = sqlite3.connect(db)
     c = conn.cursor()
     c.execute("""CREATE TABLE IF NOT EXISTS sessions (
-        email TEXT, token TEXT, expires_at REAL
+        token TEXT PRIMARY KEY,
+        email TEXT,
+        role TEXT,
+        created_at TEXT,
+        expires_at TEXT
     )""")
+    now = datetime.utcnow()
+    exp = now + timedelta(hours=6)
+    c.execute("INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?)",
+              (token, "admin@the13th.ai", "admin", now.isoformat(), exp.isoformat()))
     conn.commit(); conn.close()
+    return token
 
-def create_magic_link(email: str) -> str:
-    """Generate and store a one-time token for email login."""
-    token = secrets.token_urlsafe(24)
-    expires_at = time.time() + 900   # 15 min valid
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO sessions VALUES (?, ?, ?)", (email, token, expires_at))
-    conn.commit(); conn.close()
-    return f"https://the13th.onrender.com/client/login?token={token}"
 
-def validate_token(token: str):
-    conn = sqlite3.connect(DB_PATH)
+from fastapi import Request, HTTPException
+
+async def auth_admin(request: Request):
+    """
+    Simple admin guard using session cookie or Authorization header
+    """
+    import sqlite3, os
+    token = request.cookies.get("admin_session") or request.headers.get("Authorization")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    db = os.path.join(os.path.dirname(__file__), "..", "sessions.db")
+    conn = sqlite3.connect(db)
     c = conn.cursor()
-    c.execute("SELECT email, expires_at FROM sessions WHERE token=?", (token,))
+    c.execute("SELECT role, expires_at FROM sessions WHERE token = ?", (token,))
     row = c.fetchone()
     conn.close()
-    if not row: return None
-    email, exp = row
-    if time.time() > exp: return None
-    return email
 
-import requests
+    if not row:
+        raise HTTPException(status_code=401, detail="Invalid session")
 
-def notify_webhook(status: str, recipient: str, message: str = ""):
-    """Notify configured Slack or Discord webhook on email delivery status."""
-    url = os.getenv("WEBHOOK_URL")
-    if not url:
-        return
-    payload = {
-        "content": f"📡 **THE13TH Email {status.upper()}** → {recipient}\n{message}"
-    }
-    try:
-        requests.post(url, json=payload, timeout=10)
-    except Exception as e:
-        print(f"⚠️ Webhook notification failed: {e}")
-
-# Integrate webhook calls into existing log_email_delivery
-def log_email_delivery(recipient: str, status: str, message: str = ""):
+    role, expires = row
     from datetime import datetime
-    import os
-    log_dir = os.path.join(os.path.dirname(__file__), "..", "logs")
-    os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, "email_delivery.log")
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    line = f"[{timestamp}] {status.upper()} — {recipient} — {message}\\n"
-    with open(log_path, "a") as f:
-        f.write(line)
-    notify_webhook(status, recipient, message)
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if datetime.fromisoformat(expires) < datetime.utcnow():
+        raise HTTPException(status_code=401, detail="Session expired")
+    return True
+
+
+def get_session(token: str):
+    import os, sqlite3
+    db = os.path.join(os.path.dirname(__file__), "..", "sessions.db")
+    con = sqlite3.connect(db)
+    row = con.execute("SELECT token, email, role, created_at, expires_at FROM sessions WHERE token=?",(token,)).fetchone()
+    con.close()
+    if not row:
+        return None
+    return {"token": row[0], "email": row[1], "role": row[2], "created_at": row[3], "expires_at": row[4]}

@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* === THE13TH Light Grey + Purple Theme === */
+:root {
+  --color-bg: #f4f4f7;            /* soft light grey background */
+  --color-surface: #ffffff;       /* white surface for cards/panels */
+  --color-surface-alt: #ececf0;   /* subtle contrast for sidebar */
+  --color-accent: #7c3aed;        /* vibrant purple 600 */
+  --color-accent-light: #a78bfa;  /* soft purple 400 */
+  --color-text: #1f1f23;          /* dark text */
+}
+
+html, body {
+  background-color: var(--color-bg) !important;
+  color: var(--color-text) !important;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Sidebar styling */
+.sidebar {
+  background-color: var(--color-surface-alt);
+  border-right: 1px solid var(--color-accent-light);
+}
+
+/* Buttons and active nav */
+button,
+a,
+.sidebar a.active {
+  background-color: var(--color-accent);
+  color: white;
+  border-radius: 0.5rem;
+  transition: background-color 0.25s ease;
+}
+
+button:hover,
+a:hover,
+.sidebar a:hover {
+  background-color: var(--color-accent-light);
+}
+
+/* Card component styling */
+.card {
+  background-color: var(--color-surface);
+  border: 1px solid #d8d8df;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}

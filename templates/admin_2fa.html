@@ -1,0 +1,11 @@
+<!doctype html>
+<html><head><title>2FA</title></head>
+<body>
+  <h3>Enter the 6-digit code sent to your email</h3>
+  <form method="post" action="/admin/2fa">
+    <input name="token" placeholder="session token" value="{{ token }}" readonly /><br/>
+    <input name="code" placeholder="123456" /><br/>
+    <button type="submit">Verify</button>
+  </form>
+  {% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+</body></html>

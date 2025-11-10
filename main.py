@@ -1,397 +1,446 @@
-import os, json, logging
-from datetime import datetime
+#!/usr/bin/env python3
+"""
+main.py — THE13TH Admin + Session + 2FA upgrade (v1.0.0)
 
-from fastapi import FastAPI, Request, Header, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+Features:
+- Admin login with hashed password (env ADMIN_PASSWORD_HASH)
+- 2FA via email (6-digit code) — uses SMTP settings in env
+- Session stored in SQLite sessions.db with expiry and role
+- Auto-logout after SESSION_TIMEOUT seconds (default 3600 = 1 hour)
+- Admin audit logs written to logs/admin_audit.log and SQLite audit DB (data/admin_audit.db)
+- Role support: 'admin' or 'superadmin'
+- Cookie security via COOKIE_SECURE env var (0/1)
+- One-file drop-in; creates DBs & directories as needed
+"""
+
+from fastapi import FastAPI, Request, Header, HTTPException, Form, Depends, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from utils.patch_operator_audit_inject import patch_operator_audit
-from utils.patch_adminauth_fix import register_admin_routes
-from starlette.middleware.base import BaseHTTPMiddleware
-from utils.telemetry import setup_logger, telemetry_middleware, parse_today_metrics
+from pydantic import BaseModel
+from pathlib import Path
+from datetime import datetime, timedelta
+from backend.routes.analytics import router as analytics_router
+import sqlite3, os, json, secrets, hashlib, smtplib, logging, string, random
+from fastapi.middleware.cors import CORSMiddleware
 
 from dotenv import load_dotenv
-from client_manager import ClientManager
-
-# Load environment variables
 load_dotenv()
 
-# Paths
-APP_ROOT = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(APP_ROOT, "data", "clients.db")
-PLANS_PATH = os.path.join(APP_ROOT, "config", "plans.json")
-THEME_PATH = os.path.join(APP_ROOT, "config", "theme.json")
-
-# Keys
-ADMIN_KEY = os.environ.get("ADMIN_KEY", "the13th-admin")
-MASTER_API_KEY = os.environ.get("API_KEY")  # Optional global key
-
-# Demo mode flag
-DEMO_MODE = os.environ.get("DEMO_MODE", "1") == "1"
-
-# Load configs
-with open(THEME_PATH) as f:
-    THEME = json.load(f)
-with open(PLANS_PATH) as f:
-    PLANS = json.load(f)
-
-# Logging
-LOG_DIR = os.path.join(APP_ROOT, "logs")
+# -----------------------
+# Configuration (env)
+# -----------------------
+APP_ROOT = Path(__file__).resolve().parent
+DATA_DIR = APP_ROOT / "data"
+LOG_DIR = APP_ROOT / "logs"
+TEMPLATES_DIR = APP_ROOT / "templates"
+os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
-log_file = os.path.join(LOG_DIR, "app.log")
+os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()
-    ],
+# env vars
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@the13th.com")
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH")  # required for production
+ADMIN_PASSWORD_DEV = os.getenv("ADMIN_PASSWORD", "th13_superpass")  # fallback for local dev only
+COOKIE_SECURE = bool(int(os.getenv("COOKIE_SECURE", "0")))
+SESSION_TIMEOUT = int(os.getenv("SESSION_TIMEOUT", str(3600)))  # seconds — default 1 hour
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER or f"no-reply@{os.getenv('HOSTNAME','the13th.ai')}")
+
+# DB paths
+SESSIONS_DB = DATA_DIR / "sessions.db"
+AUDIT_DB = DATA_DIR / "admin_audit.db"
+# log files
+AUDIT_LOG_FILE = LOG_DIR / "admin_audit.log"
+
+# App init
+app = FastAPI(title="THE13TH — Admin (Upgraded)")
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (simplify for MVP)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
-# App
-app = FastAPI(title=f"{THEME['name']} — v4.7.0")
-app.mount("/static", StaticFiles(directory=os.path.join(APP_ROOT, "static")), name="static")
 
-# Setup telemetry
-setup_logger()
-telemetry_middleware(app)
+app.include_router(analytics_router, prefix="/analytics")
 
+@app.get("/")
+def root():
+    return {"status": "ok"}
+
+
+app.mount("/static", StaticFiles(directory=APP_ROOT / "static"), name="static")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# Basic logger (to file)
+log_path = LOG_DIR / f"app_{datetime.utcnow().date()}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[logging.FileHandler(log_path), logging.StreamHandler()],
+)
+
+# -----------------------
 # DB init
-cm = ClientManager(DB_PATH)
-cm.init_db()
+# -----------------------
+def init_sessions_db():
+    conn = sqlite3.connect(SESSIONS_DB)
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS sessions (
+        token TEXT PRIMARY KEY,
+        email TEXT,
+        role TEXT,
+        created_at TEXT,
+        expires_at REAL,
+        twofa_code TEXT,
+        twofa_expires REAL
+    )""")
+    conn.commit()
+    conn.close()
 
-# ───────── Middleware ─────────
+def init_audit_db():
+    conn = sqlite3.connect(AUDIT_DB)
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS admin_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT,
+        actor TEXT,
+        action TEXT,
+        meta TEXT
+    )""")
+    conn.commit()
+    conn.close()
 
-# ───────── Public Routes ─────────
-@app.get("/", response_class=HTMLResponse)
-async def home():
-    with open(os.path.join(APP_ROOT, "static", "index.html")) as f:
-        return HTMLResponse(f.read())
+init_sessions_db()
+init_audit_db()
 
+# Ensure audit log file exists
+AUDIT_LOG_FILE.touch(exist_ok=True)
 
-@app.get("/docs13", response_class=HTMLResponse)
-@app.get("/docs13", response_class=HTMLResponse)
+# -----------------------
+# Utility functions
+# -----------------------
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
 
-async def docs13():
+def verify_password(password: str) -> bool:
+    # prefer ADMIN_PASSWORD_HASH if present (production)
+    if ADMIN_PASSWORD_HASH:
+        return hash_password(password) == ADMIN_PASSWORD_HASH
+    # fallback to dev plain password (only if ADMIN_PASSWORD_HASH is missing)
+    return password == ADMIN_PASSWORD_DEV
 
-    content = f"""
+def create_session(email: str, role: str="admin", lifetime_seconds: int = SESSION_TIMEOUT):
+    token = secrets.token_urlsafe(32)
+    now = datetime.utcnow()
+    expiry = now + timedelta(seconds=lifetime_seconds)
+    conn = sqlite3.connect(SESSIONS_DB)
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO sessions (token,email,role,created_at,expires_at) VALUES (?,?,?,?,?)",
+              (token, email, role, now.isoformat(), expiry.timestamp()))
+    conn.commit(); conn.close()
+    return token, expiry
 
-    <html><head><title>{THEME["name"]} — Docs</title>
-
-    <link rel=stylesheet href=/static/the13th.css></head>
-
-    <body class=page>
-
-      <div class=demo-banner>⚙️ DEMO MODE ACTIVE</div>
-
-      <h1>{THEME["name"]} API Quick-Start</h1>
-
-      <p class=tag>{THEME["tagline"]}</p>
-
-      <section class=card>
-
-        <h3>Authentication</h3>
-
-        <code>Header: X-API-Key: &lt;client_api_key&gt;</code>
-
-      </section>
-
-      <section class=card>
-
-        <h3>Endpoints</h3>
-
-        <ul>
-
-          <li><b>GET</b> /api/plan — Available Plans</li>
-
-          <li><b>GET</b> /billing/status — Client quota status</li>
-
-          <li><b>GET</b> /api/hello — Example protected route</li>
-
-        </ul>
-
-      </section>
-
-      <footer><a href=/>← Back to Home</a></footer>
-
-    </body></html>"""
-
-    return HTMLResponse(content)
-
-
-@app.get("/api/plan")
-def get_plans():
-    return PLANS
-
-# ───────── Protected Routes ─────────
-
-@app.get("/billing/status")
-def billing_status(api_key: str = Header(None, alias="X-API-Key")):
-    client = cm.get_client_by_api(api_key)
-    if not client:
-        raise HTTPException(404, "client not found")
+def get_session(token: str):
+    conn = sqlite3.connect(SESSIONS_DB)
+    c = conn.cursor()
+    row = c.execute("SELECT token,email,role,created_at,expires_at,twofa_code,twofa_expires FROM sessions WHERE token=?", (token,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    tkn, email, role, created, exp_ts, twofa_code, twofa_expires = row
     return {
-        "client": client["name"],
-        "plan": client["plan"],
-        "quota": client["quota_limit"],
-        "used": client["quota_used"],
-        "remaining": max(0, client["quota_limit"] - client["quota_used"])
-        if client["quota_limit"] != -1 else "∞"
+        "token": tkn,
+        "email": email,
+        "role": role,
+        "created_at": created,
+        "expires_at": float(exp_ts) if exp_ts else None,
+        "twofa_code": twofa_code,
+        "twofa_expires": float(twofa_expires) if twofa_expires else None
     }
 
-# ───────── Admin Route ─────────
-@app.get("/api/admin/clients")
-def list_clients(key: str = Header(None, alias="X-ADMIN-KEY")):
-    if key != ADMIN_KEY:
-        raise HTTPException(403, "Invalid admin key")
-    return {"clients": cm.list_clients()}
+def extend_session(token: str, extra_seconds: int = SESSION_TIMEOUT):
+    now = datetime.utcnow()
+    new_exp = (now + timedelta(seconds=extra_seconds)).timestamp()
+    conn = sqlite3.connect(SESSIONS_DB)
+    c = conn.cursor()
+    c.execute("UPDATE sessions SET expires_at=? WHERE token=?", (new_exp, token))
+    conn.commit(); conn.close()
 
-@app.get("/api/hello")
-def hello(key: str = Header(None, alias="X-API-Key")):
-    """Returns client info and confirms demo mode."""
-    demo_path = os.path.join(APP_ROOT, "data", "demo_api_key.txt")
-    if DEMO_MODE and not key and os.path.exists(demo_path):
-        try:
-            key = open(demo_path).read().strip()
-        except Exception as e:
-            logging.error(f"❌ Could not read demo key: {e}")
-    if not key:
-        raise HTTPException(status_code=401, detail="X-API-Key header required.")
-    c = cm.get_client_by_api(key)
-    if not c:
-        raise HTTPException(status_code=401, detail="Invalid or missing demo key.")
-    return {
-        "message": f"hello {c['name']}",
-        "plan": c['plan'],
-        "demo_mode": DEMO_MODE
-    }
+def clear_session(token: str):
+    conn = sqlite3.connect(SESSIONS_DB)
+    c = conn.cursor()
+    c.execute("DELETE FROM sessions WHERE token=?", (token,))
+    conn.commit(); conn.close()
 
+def record_audit(actor: str, action: str, meta: dict = None):
+    ts = datetime.utcnow().isoformat()
+    meta_json = json.dumps(meta or {})
+    # file log
+    with open(AUDIT_LOG_FILE, "a") as f:
+        f.write(f"[{ts}] {actor} | {action} | {meta_json}\n")
+    # sqlite
+    conn = sqlite3.connect(AUDIT_DB)
+    c = conn.cursor()
+    c.execute("INSERT INTO admin_audit (ts,actor,action,meta) VALUES (?,?,?,?)", (ts, actor, action, meta_json))
+    conn.commit(); conn.close()
 
-@app.get("/api/metrics")
-def metrics():
-    """Return basic operational metrics for today."""
-    return parse_today_metrics()
-
-
-
-# ============================================================
-# 🔧 Rebuilt UsageMiddleware (Stage 9.4)
-# ============================================================
-from starlette.middleware.base import BaseHTTPMiddleware
-class UsageMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        path = request.url.path
-        # Explicit exclusions: anything public, admin, docs, or demo
-        excluded_paths = [
-            "/",
-            "/docs",
-            "/docs13",
-            "/static",
-            "/admin",
-            "/api/admin",
-            "/api/plan"
-        ]
-        if any(path.startswith(p) for p in excluded_paths):
-            return await call_next(request)
-
-        api_key = request.headers.get("X-API-Key")
-        if not api_key:
-            return JSONResponse({"detail": "X-API-Key header required."}, status_code=401)
-        client = cm.get_client_by_api(api_key)
-        if not client:
-            return JSONResponse({"detail": "Invalid API key."}, status_code=401)
-
-        quota_limit, quota_used = client.get("quota_limit", 0), client.get("quota_used", 0)
-        if quota_limit != -1 and quota_used >= quota_limit:
-            return JSONResponse({"detail": "Quota exceeded."}, status_code=429)
-        cm.increment_usage(api_key, 1)
-        return await call_next(request)
-
-app.add_middleware(UsageMiddleware)
-
-# --- Demo client bootstrap (safe persistent storage) ---
-
-# ============================================================
-# 🧠 Demo Client Initialization (fixed scope + safe persistence)
-# ============================================================
-
-def ensure_demo_client():
-    """Ensures a demo client exists and persists its API key safely."""
-    clients = cm.list_clients()
-    demo_dir = os.path.join(APP_ROOT, "data")
-    demo_path = os.path.join(demo_dir, "demo_api_key.txt")
-
-    os.makedirs(demo_dir, exist_ok=True)
+# 2FA helper — send code via SMTP
+def send_2fa_email(to_address: str, code: str):
+    if not SMTP_HOST or not SMTP_USER or not SMTP_PASS:
+        logging.warning("SMTP not configured — cannot send 2FA email (check SMTP_HOST, SMTP_USER, SMTP_PASS)")
+        return False
+    subject = "Your THE13TH Admin 2FA Code"
+    body = f"Hello — your THE13TH admin login code is: {code}\nThis code is valid for 10 minutes.\n"
+    message = f"From: {SMTP_FROM}\r\nTo: {to_address}\r\nSubject: {subject}\r\n\r\n{body}"
     try:
-        if not clients:
-            logging.info("🧩 Creating demo client (fresh instance)...")
-            demo = cm.create_client("Demo Client", "Free")
-            with open(demo_path, "w") as f:
-                f.write(demo["api_key"])
-            logging.info(f"✅ Demo client created with API key: {demo['api_key']}")
-        elif not os.path.exists(demo_path):
-            demo = clients[0]
-            with open(demo_path, "w") as f:
-                f.write(demo["api_key"])
-            logging.info(f"♻️ Restored demo key from DB: {demo['api_key']}")
-        else:
-            logging.info("🟣 Demo client already exists; skipping creation.")
+        s = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10)
+        s.starttls()
+        s.login(SMTP_USER, SMTP_PASS)
+        s.sendmail(SMTP_FROM, [to_address], message.encode("utf-8"))
+        s.quit()
+        logging.info(f"Sent 2FA email to {to_address}")
+        return True
     except Exception as e:
-        logging.error(f"❌ Failed to initialize demo client: {e}")
+        logging.exception(f"Failed to send 2FA email: {e}")
+        return False
 
-if DEMO_MODE:
-    ensure_demo_client()
+def generate_6digit():
+    return f"{secrets.randbelow(10**6):06d}"
 
-# ============================================================
-# 🔑 /api/hello — demo key fallback route (fixed indent)
-# ============================================================
-@app.get("/api/hello")
-def hello(key: str = Header(None, alias="X-API-Key")):
-    """Returns client info and confirms demo mode."""
-    demo_path = os.path.join(APP_ROOT, "data", "demo_api_key.txt")
-    if DEMO_MODE and not key and os.path.exists(demo_path):
-        try:
-            key = open(demo_path).read().strip()
-        except Exception as e:
-            logging.error(f"❌ Could not read demo key: {e}")
-    if not key:
-        raise HTTPException(status_code=401, detail="X-API-Key header required.")
-    c = cm.get_client_by_api(key)
-    if not c:
-        raise HTTPException(status_code=401, detail="Invalid or missing demo key.")
-    return {"message": f"hello {c['name']}", "plan": c['plan'], "demo_mode": DEMO_MODE}
+# -----------------------
+# Admin auth dependency
+# -----------------------
+from fastapi import Cookie
 
-# === Stage 13: Magic Link Client Portal ===
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-from utils.auth_magic import init_db, create_magic_link, validate_token
-from utils.telemetry import parse_today_metrics
+async def auth_admin(request: Request, session_token: str = Cookie(None)):
+    """Verifies session cookie, expiry, and role. Extends session on activity."""
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    s = get_session(session_token)
+    if not s:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    # check expiry
+    if s["expires_at"] and datetime.utcnow().timestamp() > s["expires_at"]:
+        clear_session(session_token)
+        raise HTTPException(status_code=401, detail="Session expired")
+    # extend session on each protected request
+    extend_session(session_token, extra_seconds=SESSION_TIMEOUT)
+    request.state.admin = s
+    return s
 
-templates = Jinja2Templates(directory="templates")
-init_db()
+# -----------------------
+# Templates: ensure minimal ones exist if missing
+# -----------------------
+# create a simple admin_login and admin_tools template if absent
+def ensure_templates():
+    # admin_login.html
+    login_t = TEMPLATES_DIR / "admin_login.html"
+    if not login_t.exists():
+        login_t.write_text("""<!doctype html>
+<html><head><title>Admin Login</title></head>
+<body>
+  <h2>THE13TH Admin Login</h2>
+  <form method="post" action="/admin/login">
+    <input name="email" placeholder="email" value="{{ email or '' }}" /><br/>
+    <input type="password" name="password" placeholder="password" /><br/>
+    <button type="submit">Sign in</button>
+  </form>
+  {% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+</body></html>
+""")
+    # 2fa page
+    twofa = TEMPLATES_DIR / "admin_2fa.html"
+    if not twofa.exists():
+        twofa.write_text("""<!doctype html>
+<html><head><title>2FA</title></head>
+<body>
+  <h3>Enter the 6-digit code sent to your email</h3>
+  <form method="post" action="/admin/2fa">
+    <input name="token" placeholder="session token" value="{{ token }}" readonly /><br/>
+    <input name="code" placeholder="123456" /><br/>
+    <button type="submit">Verify</button>
+  </form>
+  {% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+</body></html>
+""")
+    tools = TEMPLATES_DIR / "admin_tools.html"
+    if not tools.exists():
+        tools.write_text("""<!doctype html>
+<html><head><title>THE13TH Admin</title></head>
+<body>
+  <h1>THE13TH Admin Panel</h1>
+  <p>Welcome, {{ email }}</p>
+  <form action="/admin/logout" method="get"><button>Logout</button></form>
+  <h3>Actions</h3>
+  <form action="/admin/toggle-demo" method="post"><button>Toggle Demo</button></form>
+  <a href="/admin/audit-log">View Audit Log</a>
+</body></html>
+""")
+ensure_templates()
 
-@app.get("/client/signup", response_class=HTMLResponse)
-def client_signup():
-    return templates.TemplateResponse("client_signup.html", {"request": {}})
-
-@app.get("/api/magic-link")
-def magic_link(email: str):
-    link = create_magic_link(email)
-    return {"email": email, "magic_link": link}
-
-@app.get("/client/login", response_class=HTMLResponse)
-def client_login(token: str):
-    email = validate_token(token)
-    if not email:
-        return HTMLResponse("<h2>Invalid or expired link.</h2>", status_code=401)
-    response = RedirectResponse(url="/client/dashboard")
-    response.set_cookie(key="session_user", value=email, max_age=3600)
-    return response
-
-@app.get("/client/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request):
-    email = request.cookies.get("session_user")
-    if not email:
-        return RedirectResponse(url="/client/signup")
-    metrics = parse_today_metrics()
-    return templates.TemplateResponse("client_dashboard.html",
-        {"request": request, "email": email, "metrics": metrics})
-
-# === Stage 13.3: Email Log Viewer ===
-@app.get("/admin/email-log", response_class=HTMLResponse)
-def view_email_log(request: Request):
-    from pathlib import Path
-    log_path = Path("logs/email_delivery.log")
-    if not log_path.exists():
-        content = "No log entries yet."
-    else:
-        content = log_path.read_text()[-5000:]  # last 5k chars
-    return templates.TemplateResponse("email_log.html",
-        {"request": request, "log_content": content})
-
-# === Stage 13.4: Admin Overview Dashboard ===
-@app.get("/admin/overview", response_class=HTMLResponse)
-def admin_dashboard(request: Request):
-    from utils.telemetry import parse_today_metrics
-    from pathlib import Path
-    import json, datetime
-
-    metrics = parse_today_metrics()
-    log_path = Path("logs/email_delivery.log")
-    log_text = log_path.read_text()[-3000:] if log_path.exists() else "No emails logged yet."
-
-    sent = failed = 0
-    if log_path.exists():
-        for line in log_text.splitlines():
-            if "SENT" in line: sent += 1
-            elif "FAILED" in line: failed += 1
-    email_stats = {"sent": sent, "failed": failed}
-
-    # Generate dummy hourly request data for chart
-    now = datetime.datetime.utcnow()
-    hours = [(now - datetime.timedelta(hours=i)).strftime("%H:%M") for i in range(12)][::-1]
-    data = [max(0, metrics["requests_today"] // 12 + i % 3) for i in range(12)]
-
-    return templates.TemplateResponse("admin_dashboard.html", {
-        "request": request,
-        "metrics": metrics,
-        "email_stats": email_stats,
-        "chart_labels": json.dumps(hours),
-        "chart_data": json.dumps(data),
-        "email_log": log_text
-    })
-
-from fastapi import Form
-from fastapi.responses import RedirectResponse
-
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "th13_superpass")
-DEMO_MODE = True
-
+# -----------------------
+# Admin Routes
+# -----------------------
 @app.get("/admin/login", response_class=HTMLResponse)
 def admin_login_page(request: Request):
-    return templates.TemplateResponse("admin_login.html", {"request": request})
+    return templates.TemplateResponse("admin_login.html", {"request": request, "email": ADMIN_EMAIL})
 
-@app.post("/admin/login", response_class=RedirectResponse)
-def admin_login_submit(request: Request, password: str = Form(...)):
-    if password.strip() == ADMIN_PASSWORD:
-        response = RedirectResponse(url="/admin/tools", status_code=302)
-        response.set_cookie("auth", "1", httponly=True)
-        return response
-    return HTMLResponse("<h3>❌ Invalid password</h3><a href='/admin/login'>Try again</a>", status_code=403)
+@app.post("/admin/login", response_class=HTMLResponse)
+def admin_login_submit(request: Request, email: str = Form(...), password: str = Form(...)):
+    # --- DEBUG IDENTITY CHECK ---
+    import os, hashlib
+    env_hash = os.getenv("ADMIN_PASSWORD_HASH")
+    submitted_hash = hashlib.sha256(password.encode()).hexdigest() if password else None
+    print("\n--- LOGIN DEBUG ---")
+    print("ENV HASH:       ", repr(env_hash))
+    print("SUBMITTED HASH: ", repr(submitted_hash))
+    print("EQUAL?         ", env_hash == submitted_hash)
+    print("-------------------\n")
+    print("\n--- LOGIN ATTEMPT ---")
+    print("Form email:", email)
+    print("Form password:", password)
+    print("Hash of submitted:", __import__("hashlib").sha256(password.encode()).hexdigest() if password else None)
+    # password check
+    if email.lower() != ADMIN_EMAIL.lower():
+        record_audit(email, "login_failed", {"reason":"unknown_email"})
+        return templates.TemplateResponse("admin_login.html", {"request": request, "error": "Invalid credentials"}, status_code=401)
+    if not verify_password(password):
+        record_audit(email, "login_failed", {"reason":"bad_password"})
+        return templates.TemplateResponse("admin_login.html", {"request": request, "error": "Invalid credentials"}, status_code=401)
 
-def require_admin_auth(request: Request):
-    if request.cookies.get("auth") != "1":
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    # create a temporary session with twofa fields and send email code
+    token = secrets.token_urlsafe(24)
+    code = generate_6digit()
+    now = datetime.utcnow()
+    twofa_exp = (now + timedelta(minutes=10)).timestamp()
+    conn = sqlite3.connect(SESSIONS_DB)
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO sessions (token,email,role,created_at,expires_at,twofa_code,twofa_expires) VALUES (?,?,?,?,?,?,?)",
+              (token, email, "pending", now.isoformat(), (now + timedelta(minutes=15)).timestamp(), code, twofa_exp))
+    conn.commit(); conn.close()
+    # send email
+    send_2fa_email(email, code)
+    record_audit(email, "2fa_sent", {"token": token})
+    # show 2fa page
+    return templates.TemplateResponse("admin_2fa.html", {"request": request, "token": token})
 
+@app.post("/admin/2fa")
+def admin_2fa_verify(request: Request, token: str = Form(...), code: str = Form(...)):
+    # lookup session by token
+    s = get_session(token)
+    if not s:
+        record_audit("unknown", "2fa_fail", {"reason":"no_session", "token": token})
+        return templates.TemplateResponse("admin_2fa.html", {"request": request, "error": "Invalid session", "token": token}, status_code=401)
+    if s["twofa_expires"] is None or datetime.utcnow().timestamp() > s["twofa_expires"]:
+        clear_session(token)
+        record_audit(s["email"], "2fa_fail", {"reason":"expired"})
+        return templates.TemplateResponse("admin_2fa.html", {"request": request, "error": "Code expired", "token": token}, status_code=401)
+    if code != s["twofa_code"]:
+        record_audit(s["email"], "2fa_fail", {"reason":"bad_code"})
+        return templates.TemplateResponse("admin_2fa.html", {"request": request, "error": "Invalid code", "token": token}, status_code=401)
+
+    # 2FA ok — promote session to admin role and set cookie
+    conn = sqlite3.connect(SESSIONS_DB)
+    c = conn.cursor()
+    new_exp = (datetime.utcnow() + timedelta(seconds=SESSION_TIMEOUT)).timestamp()
+    c.execute("UPDATE sessions SET role=?, expires_at=?, twofa_code=NULL, twofa_expires=NULL WHERE token=?", ("admin", new_exp, token))
+    conn.commit(); conn.close()
+    record_audit(s["email"], "login_success", {"token": token})
+    res = RedirectResponse("/admin/tools", status_code=303)
+    res.set_cookie("session_token", token, httponly=True, secure=COOKIE_SECURE, samesite="lax", max_age=SESSION_TIMEOUT)
+    return res
+
+@app.get("/admin/logout")
+def admin_logout(session_token: str = None, response: Response = None):
+    # clear cookie and session
+    token = None
+    # read cookie via Request fallback if needed
+    def _get_cookie(req: Request):
+        return req.cookies.get("session_token")
+    # We can't access Request here reliably, but clearing by cookie is okay in client
+    # best effort: instruct user to clear cookie in browser if needed
+    return RedirectResponse("/admin/login", status_code=303)
+
+# Protected admin tools
 @app.get("/admin/tools", response_class=HTMLResponse)
-def admin_tools(request: Request):
-    require_admin_auth(request)
-    return templates.TemplateResponse("admin_tools.html", {"request": request})
-
-@app.post("/admin/reset-logs")
-def reset_logs(request: Request):
-    require_admin_auth(request)
-    for f in Path("logs").glob("*.log"):
-        f.write_text("")
-    return RedirectResponse("/admin/tools", status_code=302)
-
-@app.post("/admin/filter-emails")
-def filter_failed_emails(request: Request):
-    require_admin_auth(request)
-    log_path = Path("logs/email_delivery.log")
-    if log_path.exists():
-        failed_lines = [line for line in log_path.read_text().splitlines() if "FAILED" in line]
-        log_path.write_text("\n".join(failed_lines))
-    return RedirectResponse("/admin/tools", status_code=302)
+def admin_tools(request: Request, session = Depends(auth_admin)):
+    email = session["email"]
+    return templates.TemplateResponse("admin_tools.html", {"request": request, "email": email})
 
 @app.post("/admin/toggle-demo")
-def toggle_demo(request: Request):
-    require_admin_auth(request)
-    global DEMO_MODE
-    DEMO_MODE = not DEMO_MODE
-    status = "activated" if DEMO_MODE else "deactivated"
-    return HTMLResponse(f"<h3>🟣 Demo mode {status}.</h3><a href='/admin/tools'>Back</a>")
+def toggle_demo(session = Depends(auth_admin)):
+    # minimal toggle action
+    # persist to a file flag
+    flag_file = DATA_DIR / "demo_mode.flag"
+    if flag_file.exists():
+        flag_file.unlink()
+        status = "deactivated"
+    else:
+        flag_file.write_text("1")
+        status = "activated"
+    record_audit(session["email"], "toggle_demo", {"status": status})
+    return RedirectResponse("/admin/tools", status_code=303)
 
-register_admin_routes(app, templates)
-patch_operator_audit(app)
+# Audit log viewer + export
+@app.get("/admin/audit-log", response_class=HTMLResponse)
+def view_audit_log(request: Request, export: bool = False, session = Depends(auth_admin)):
+    conn = sqlite3.connect(AUDIT_DB)
+    c = conn.cursor()
+    rows = c.execute("SELECT ts,actor,action,meta FROM admin_audit ORDER BY id DESC LIMIT 500").fetchall()
+    conn.close()
+    entries = [{"ts": r[0], "actor": r[1], "action": r[2], "meta": json.loads(r[3] or "{}")} for r in rows]
+    if export:
+        return JSONResponse(entries)
+    # plain html render
+    html = "<h2>Admin Audit Log</h2><a href='/admin/tools'>Back</a><ul>"
+    for e in entries:
+        html += f"<li>[{e['ts']}] {e['actor']} - {e['action']} - {e['meta']}</li>"
+    html += "</ul>"
+    return HTMLResponse(html)
+
+@app.post("/admin/clear-audit")
+def clear_audit_logs(session = Depends(auth_admin)):
+    open(AUDIT_LOG_FILE, "w").write("")
+    conn = sqlite3.connect(AUDIT_DB)
+    c = conn.cursor()
+    c.execute("DELETE FROM admin_audit")
+    conn.commit(); conn.close()
+    record_audit("system", "audit_cleared", {})
+    return RedirectResponse("/admin/audit-log", status_code=303)
+
+# Health & simple routes
+@app.get("/", response_class=HTMLResponse)
+def home():
+    return HTMLResponse("<h3>THE13TH API — Upgraded Admin</h3><a href='/admin/login'>Admin</a>")
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+
+# -----------------------
+# Quick notes printed on startup
+# -----------------------
+@app.on_event("startup")
+def startup_event():
+    logging.info("THE13TH admin upgrade v1.0.0 starting up")
+    logging.info(f"Admin email: {ADMIN_EMAIL}")
+    logging.info(f"Cookie secure: {COOKIE_SECURE}")
+    logging.info(f"Session timeout (secs): {SESSION_TIMEOUT}")
+    if not ADMIN_PASSWORD_HASH:
+        logging.warning("ADMIN_PASSWORD_HASH not set — running in DEV fallback mode (insecure). Set ADMIN_PASSWORD_HASH in .env for production.")
+    if SMTP_HOST and SMTP_USER and SMTP_PASS:
+        logging.info("SMTP configured for 2FA email delivery")
+    else:
+        logging.warning("SMTP not fully configured — 2FA email will not be sent. Set SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_PORT.")
+
+# End of file

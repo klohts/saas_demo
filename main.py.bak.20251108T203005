@@ -1,0 +1,102 @@
+from fastapi import FastAPI, Request, HTTPException, Depends, Form, Response
+import json
+from pathlib import Path
+from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse
+from fastapi import FastAPI, Request, HTTPException, Depends
+
+app = FastAPI()
+
+async def auth_admin(request: Request):
+    token = request.cookies.get("session_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if token != "admin_session_token":
+        raise HTTPException(status_code=403, detail="Invalid session")
+    return True
+
+    return RedirectResponse("/admin/tools", status_code=303)
+
+
+
+@app.post("/admin/login")
+def admin_login(password: str = Form(...), response: Response = None):
+    if password != "admin123":
+        return HTMLResponse("<h3>❌ Invalid password</h3>", status_code=401)
+
+    res = RedirectResponse("/admin/tools", status_code=303)
+    res.set_cookie(key="session_token", value="admin_session_token", httponly=True)
+    return res
+
+
+@app.post("/admin/toggle-demo")
+def toggle_demo(session_token: str = Depends(auth_admin)):
+    global DEMO_MODE
+    DEMO_MODE = not DEMO_MODE
+    status = "activated" if DEMO_MODE else "deactivated"
+    return HTMLResponse(f"<h3>🟣 Demo mode {status}.</h3><a href='/admin/tools'>Back</a>")
+
+@app.get("/admin/audit-log", response_class=HTMLResponse)
+def view_audit_log(request: Request, export: bool = False, session_token: str = Depends(auth_admin)):
+    log_path = Path("logs/admin_audit.log")
+    entries = []
+    if log_path.exists():
+        for line in log_path.read_text().splitlines():
+            try: entries.append(json.loads(line.strip()))
+            except: pass
+    if export:
+        return JSONResponse(entries)
+    return templates.TemplateResponse("admin_audit_log.html", {"request": request, "logs": entries})
+
+@app.post("/admin/clear-audit")
+def clear_audit_logs(session_token: str = Depends(auth_admin)):
+    Path("logs/admin_audit.log").write_text("")
+    return RedirectResponse("/admin/audit-log", status_code=303)
+
+from fastapi.responses import HTMLResponse
+from datetime import datetime
+
+@app.get("/admin/tools", response_class=HTMLResponse, dependencies=[Depends(auth_admin)])
+def admin_tools(request: Request):
+    from fastapi.templating import Jinja2Templates
+    templates = Jinja2Templates(directory="templates")
+    return templates.TemplateResponse("admin_tools.html", {"request": request, "datetime": datetime})
+
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+
+ADMIN_PASSWORD = "admin123"
+
+@app.get("/admin/login", response_class=HTMLResponse)
+def admin_login_page():
+    return """
+    <html>
+    <body>
+        <h2>Admin Login</h2>
+        <form action="/admin/login" method="post">
+            <input type="password" name="password" placeholder="Enter admin password"/>
+            <button type="submit">Login</button>
+        </form>
+    </body>
+    </html>
+    """
+
+@app.post("/admin/login")
+def admin_login(password: str, response: Response):
+    if password != ADMIN_PASSWORD:
+        return HTMLResponse("<h3>❌ Invalid password</h3>", status_code=401)
+
+    res = RedirectResponse("/admin/tools", status_code=303)
+    res.set_cookie(key="session_token", value="admin_session_token", httponly=True)
+    return res
+
+
+from fastapi import Form
+
+@app.post("/admin/login")
+def admin_login(password: str = Form(...), response: Response = None):
+    if password != ADMIN_PASSWORD:
+        return HTMLResponse("<h3>❌ Invalid password</h3>", status_code=401)
+
+    res = RedirectResponse("/admin/tools", status_code=303)
+    res.set_cookie(key="session_token", value="admin_session_token", httponly=True)
+    return res
+
