@@ -1,0 +1,10 @@
+{
+  "name": "Demo Client",
+  "description": "Client-specific overrides for THE13TH",
+  "theme": "default",
+  "logo_url": "",
+  "features": {
+    "remove_branding": false,
+    "custom_domains": false
+  }
+}

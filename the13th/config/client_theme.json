@@ -1,0 +1,12 @@
+{
+  "name": "default",
+  "colors": {
+    "primary": "#6D28D9",
+    "accent": "#8B5CF6",
+    "bg": "#F8FAFC"
+  },
+  "font": {
+    "family": "Inter, system-ui, sans-serif",
+    "base_size": 16
+  }
+}
