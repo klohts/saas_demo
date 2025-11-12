@@ -1,28 +1,80 @@
-/* App.jsx generated: mounts layout + routes for THE13TH */
-import React from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import Sidebar from './components/Sidebar'
-import Dashboard from './pages/Dashboard'
-import EventFeedPage from './pages/EventFeed'
-import RulesEditorPage from './pages/RulesEditor'
-import ScoreAnalytics from './pages/ScoreAnalytics'
+import RealEstatePanel from './realEstate';
+import React, { useEffect, useState } from "react";
+import { fetchScores, fetchTrend, fetchUsers, postEvent } from "./api";
 
-export default function App(){
+function App() {
+  const [scores, setScores] = useState({});
+  const [trend, setTrend] = useState({});
+  const [users, setUsers] = useState([]);
+  const [events, setEvents] = useState([]);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function loadData() {
+    const [sc, tr, us] = await Promise.all([
+      fetchScores(),
+      fetchTrend(),
+      fetchUsers(),
+    ]);
+    setScores(sc.scores || {});
+    setTrend(sc.trend || {});
+    setUsers(us || []);
+  }
+
+  async function sendEvent() {
+    const res = await postEvent("ken", "test_event");
+    setEvents((e) => [...e, res]);
+  }
+
   return (
-    <BrowserRouter>
-      <div className="min-h-screen flex bg-[#0d0d0d] text-gray-200">
-        <Sidebar />
-        <main className="flex-1 p-6">
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace/>} />
-            <Route path="/dashboard" element={<Dashboard/>} />
-            <Route path="/events" element={<EventFeedPage/>} />
-            <Route path="/rules" element={<RulesEditorPage/>} />
-            <Route path="/score" element={<ScoreAnalytics/>} />
-            <Route path="*" element={<Navigate to="/dashboard" replace/>} />
-          </Routes>
-        </main>
+    <div className="min-h-screen bg-accent text-dark font-sans flex flex-col items-center p-8">
+      <div className="max-w-5xl w-full bg-light shadow-xl rounded-2xl p-8 space-y-8">
+        <header className="flex items-center justify-between border-b border-primary pb-4">
+          <div>
+            <h1 className="text-2xl font-heading text-primary">
+              THE13TH — Live Analytics
+            </h1>
+            <p className="text-sm text-dark/70">Client Intelligence Dashboard</p>
+          </div>
+          <button
+            onClick={sendEvent}
+            className="btn bg-primary text-white hover:bg-accent hover:text-dark"
+          >
+            Send Test Event
+          </button>
+        </header>
+
+        <div className="grid grid-cols-2 gap-6">
+          <div className="card">
+            <h2 className="text-lg font-semibold text-primary mb-2">Scores</h2>
+            <pre className="bg-dark text-light rounded-lg p-3 text-sm overflow-auto">
+              {JSON.stringify(scores, null, 2)}
+            </pre>
+          </div>
+          <div className="card">
+            <h2 className="text-lg font-semibold text-primary mb-2">Trend</h2>
+            <pre className="bg-dark text-light rounded-lg p-3 text-sm overflow-auto">
+              {JSON.stringify(trend, null, 2)}
+            </pre>
+          </div>
+          <div className="card">
+            <h2 className="text-lg font-semibold text-primary mb-2">Users</h2>
+            <pre className="bg-dark text-light rounded-lg p-3 text-sm overflow-auto">
+              {JSON.stringify(users, null, 2)}
+            </pre>
+          </div>
+          <div className="card">
+            <h2 className="text-lg font-semibold text-primary mb-2">Live Events</h2>
+            <pre className="bg-dark text-light rounded-lg p-3 text-sm overflow-auto">
+              {JSON.stringify(events, null, 2)}
+            </pre>
+          </div>
+        </div>
       </div>
-    </BrowserRouter>
-  )
+    </div>
+  );
 }
+export default App;
+

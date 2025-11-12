@@ -1,18 +1,61 @@
-/* api.js — small helper for backend calls and websocket */
-export async function fetchIntel(){
-  const r = await fetch('/admin/intel')
-  return r.json()
+// frontend/src/api.js
+const API_BASE = (import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000") + "/analytics";
+
+async function safeFetch(path, opts){
+  try{
+    const res = await fetch(API_BASE + path, opts);
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    return await res.json();
+  }catch(e){
+    console.error("api error", e);
+    return { error: "Failed to fetch" };
+  }
 }
 
-export function connectWS(onMessage){
+export async function fetchScores(){ return safeFetch("/scores"); }
+export async function fetchTrend(){ return safeFetch("/timeseries"); }
+export async function fetchUsers(){ return safeFetch("/users"); }
+export async function postEvent(user, action){
+  return safeFetch("/event", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ user, action }) });
+}
+
+// Tenant / demo helper stubs (will be upgraded later)
+export async function listTenants(){
+  return [{ id:1, name:"Default", plan:"starter" }];
+}
+export async function getTenant(id=1){
+  const t = await listTenants(); return t.find(x=>x.id===id) || t[0];
+}
+export async function toggleDemo(){
+  return { status:"ok", demo:true };
+}
+export async function demoStatus(){
+  return { active:true };
+}
+
+
+// --- Real Estate (added by setup_real_estate_mvp.py) ---
+export async function postREEvent(payload){
   try{
-    const wsProto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${wsProto}://${location.host}/intel/stream`)
-    ws.onmessage = (ev)=>{
-      try{ onMessage(JSON.parse(ev.data)) }catch(e){/* ignore */}
-    }
-    return ws
+    const res = await fetch(`${API_BASE}/api/real-estate/event`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
   }catch(e){
-    return null
+    console.error('postREEvent failed', e);
+    return { error: 'Failed to send' };
+  }
+}
+
+export async function fetchRESummary(){
+  try{
+    const res = await fetch(`${API_BASE}/api/real-estate/summary`);
+    if(!res.ok) return { error: 'Failed to fetch', status: res.status };
+    return await res.json();
+  }catch(e){
+    console.error('fetchRESummary failed', e);
+    return { error: 'Failed to fetch' };
   }
 }

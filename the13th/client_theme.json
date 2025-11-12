@@ -1,0 +1,8 @@
+{
+  "default": {
+    "background_color": "#F9FAFB",
+    "font_family": "Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial",
+    "border_radius": "10px",
+    "card_elevation": "2"
+  }
+}

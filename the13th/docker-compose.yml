@@ -1,0 +1,14 @@
+version: "3.8"
+services:
+  the13th:
+    build: .
+    ports:
+      - "8012:8012"
+    environment:
+      - APP_PORT=8012
+    restart: unless-stopped
+    depends_on:
+      - control_core
+      - client_customization
+      - app_intelligence
+      - ai_engine 

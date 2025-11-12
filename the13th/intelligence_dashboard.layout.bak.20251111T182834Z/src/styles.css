@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { --bg: #f9fafb; --primary: #7c3aed; }
+body { background: var(--bg); font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; color: #374151; }
+.card { background: white; border-radius: 12px; box-shadow: 0 6px 18px rgba(15,23,42,0.06); padding: 16px; }
+.header { color: var(--primary); font-weight: 600; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { padding: 8px 10px; border-bottom: 1px solid #e6e6e6; }

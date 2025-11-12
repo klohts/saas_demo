@@ -1,2 +1,7 @@
-fastapi==0.115.2
-uvicorn==0.32.0
+fastapi>=0.95.0
+uvicorn[standard]>=0.22.0
+sqlmodel
+jinja2
+pydantic
+pytest
+httpx

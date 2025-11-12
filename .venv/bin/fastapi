@@ -1,4 +1,4 @@
-#!/home/hp/AIAutomationProjects/saas_demo/.venv/bin/python3.12
+#!/home/hp/AIAutomationProjects/saas_demo/.venv/bin/python
 # -*- coding: utf-8 -*-
 import re
 import sys

@@ -1,63 +1,68 @@
+# backend/routes/analytics.py
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from typing import List
 from pydantic import BaseModel
+from typing import List
 from backend.core.analytics import get_engine
 
 router = APIRouter()
 engine = get_engine()
 
-# WebSocket connection manager
+# WebSocket broadcast manager (simple, in-memory)
 class WSManager:
     def __init__(self):
-        self.connections: List[WebSocket] = []
+        self._conns: List[WebSocket] = []
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
-        self.connections.append(ws)
+        self._conns.append(ws)
 
     def disconnect(self, ws: WebSocket):
-        self.connections.remove(ws)
+        try:
+            self._conns.remove(ws)
+        except ValueError:
+            pass
 
-    async def broadcast(self, message: dict):
-        for ws in self.connections:
-            await ws.send_json(message)
+    async def broadcast(self, message):
+        for c in list(self._conns):
+            try:
+                await c.send_json(message)
+            except Exception:
+                try:
+                    self._conns.remove(c)
+                except Exception:
+                    pass
 
-
-ws_manager = WSManager()
-
+ws_mgr = WSManager()
 
 class EventIn(BaseModel):
     user: str
     action: str
 
-
 @router.post("/event")
-async def event(e: EventIn):
-    evt = engine.record_event(e.user, e.action)
-    await ws_manager.broadcast({"type": "event", "data": evt})
-    return {"status": "ok"}
-
+async def post_event(e: EventIn):
+    rec = engine.record_event(e.user, e.action)
+    # broadcast to connected clients
+    await ws_mgr.broadcast({"type":"event","data":rec})
+    return {"status":"ok","event":rec}
 
 @router.get("/scores")
 def scores():
     return engine.get_scores()
 
-
 @router.get("/timeseries")
 def timeseries():
     return engine.get_timeseries()
-
 
 @router.get("/users")
 def users():
     return engine.get_users()
 
-
 @router.websocket("/ws")
-async def ws_endpoint(ws: WebSocket):
-    await ws_manager.connect(ws)
+async def websocket_endpoint(ws: WebSocket):
+    await ws_mgr.connect(ws)
     try:
         while True:
-            await ws.receive_text()  # keep connection alive
+            # keep alive; client may send pings
+            _ = await ws.receive_text()
     except WebSocketDisconnect:
-        ws_manager.disconnect(ws)
+        ws_mgr.disconnect(ws)

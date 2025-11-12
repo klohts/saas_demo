@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+#!/usr/bin/env python3
+# File: /home/hp/AIAutomationProjects/saas_demo/the13th/app_intelligence/app_intelligence_app.py
+"""
+App Intelligence Engine (upgraded: Phase 2)
+- Serves static React dashboard at /dashboard
+- Adds /api/insights/summary for dashboard metrics
+- Uses SQLite (AI_DATABASE_URL) and THE13TH_SYS_KEY for system auth
+"""
+import os, sys, logging
+from pathlib import Path
+from datetime import datetime
+from typing import Optional, Dict, Any, List
+
+from dotenv import load_dotenv
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=BASE_DIR / '.env.example', override=True)
+
+from fastapi import FastAPI, Request, Header, HTTPException, status
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from sqlmodel import SQLModel, Field as ORMField, create_engine, Session, select, func
+
+# config
+DATA_DIR = BASE_DIR / 'data'
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATABASE_URL = os.getenv('AI_DATABASE_URL', f"sqlite:///{DATA_DIR / 'events.db'}")
+THE13TH_SYS_KEY = os.getenv('THE13TH_SYS_KEY', 'sys-default-key')
+PORT = int(os.getenv('PORT', '8011'))
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger('app_intelligence')
+
+# models
+class Event(SQLModel, table=True):
+    __table_args__ = {"extend_existing": True}
+    id: Optional[int] = ORMField(default=None, primary_key=True)
+    client_id: Optional[str] = ORMField(index=True, nullable=True)
+    action: str = ORMField(nullable=False)
+    user: Optional[str] = None
+    meta_json: Optional[str] = None
+    created_at: datetime = ORMField(default_factory=datetime.utcnow)
+
+class EventCreate(BaseModel):
+    client_id: Optional[str] = Field(None)
+    action: str = Field(..., min_length=1)
+    user: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+# db
+engine = create_engine(DATABASE_URL, connect_args={'check_same_thread': False} if DATABASE_URL.startswith('sqlite') else {})
+
+def init_db():
+    SQLModel.metadata.create_all(engine)
+    logger.info('Initialized DB at %s', DATABASE_URL)
+
+def get_session():
+    return Session(engine)
+
+# app
+app = FastAPI(title='THE13TH App Intelligence', version='2.0')
+
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+# Serve built frontend
+app.mount("/assets", StaticFiles(directory=str(Path(__file__).parent / "dist" / "assets")), name="assets")
+
+@app.get("/dashboard", include_in_schema=False)
+def serve_dashboard():
+    index_path = Path(__file__).parent / "dist" / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return {"error": "Dashboard not built. Run `npm run build` in intelligence_dashboard/."}
+
+
+# mount static if build exists
+FRONTEND_DIST = BASE_DIR.parent / 'intelligence_dashboard' / 'dist'
+if FRONTEND_DIST.exists():
+    app.mount('/dashboard', StaticFiles(directory=str(FRONTEND_DIST), html=True), name='dashboard')
+
+# simple sys key check
+async def require_sys_key(x_sys_api_key: Optional[str] = Header(None)) -> None:
+    if x_sys_api_key is None or x_sys_api_key != THE13TH_SYS_KEY:
+        logger.warning('Invalid system API key attempt')
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid system API key')
+
+@app.on_event('startup')
+def on_startup():
+    init_db()
+
+@app.post('/api/events')
+def ingest_event(payload: EventCreate, x_sys_api_key: Optional[str] = Header(None)):
+    if x_sys_api_key is None or x_sys_api_key != THE13TH_SYS_KEY:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid system API key')
+    import json
+    meta_str = json.dumps(payload.metadata or {})
+    ev = Event(client_id=payload.client_id, action=payload.action, user=payload.user, meta_json=meta_str)
+    with get_session() as sess:
+        sess.add(ev)
+        sess.commit()
+        sess.refresh(ev)
+    logger.info('Ingested event id=%s action=%s client=%s', ev.id, ev.action, ev.client_id)
+    return JSONResponse(status_code=201, content={'id': ev.id, 'created_at': ev.created_at.isoformat()})
+
+@app.get('/api/insights/recent')
+def recent_events(limit: int = 20, x_sys_api_key: Optional[str] = Header(None)):
+    if x_sys_api_key is None or x_sys_api_key != THE13TH_SYS_KEY:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid system API key')
+    limit = max(1, min(100, limit))
+    with get_session() as sess:
+        q = select(Event).order_by(Event.created_at.desc()).limit(limit)
+        rows = sess.exec(q).all()
+        import json
+        out = []
+        for r in rows:
+            out.append({'id': r.id, 'client_id': r.client_id, 'action': r.action, 'user': r.user, 'metadata': json.loads(r.meta_json) if r.meta_json else {}, 'created_at': r.created_at.isoformat()})
+    return JSONResponse(content={'events': out})
+
+@app.get('/api/insights/summary')
+def insights_summary(x_sys_api_key: Optional[str] = Header(None)):
+    if x_sys_api_key is None or x_sys_api_key != THE13TH_SYS_KEY:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid system API key')
+    with get_session() as sess:
+        total = sess.exec(select(func.count()).select_from(Event)).one()
+        unique_clients = sess.exec(select(func.count(func.distinct(Event.client_id)))).one()
+        # top actions
+        rows = sess.exec(select(Event.action, func.count().label('cnt')).group_by(Event.action).order_by(func.count().desc()).limit(10)).all()
+        top_actions = [{'action': r[0], 'count': int(r[1])} for r in rows]
+        # recent users
+        users = sess.exec(select(func.distinct(Event.user)).order_by(Event.created_at.desc()).limit(10)).all()
+        recent_users = [u[0] for u in users if u[0]]
+    return JSONResponse(content={'total_events': int(total), 'unique_clients': int(unique_clients), 'top_actions': top_actions, 'recent_users': recent_users})
+
+@app.get('/healthz')
+def healthz():
+    return {'status': 'ok', 'app': 'THE13TH App Intelligence'}
+
+# serve dashboard index if mounted and no path
+@app.get('/dashboard', include_in_schema=False)
+def dashboard_index():
+    index_file = FRONTEND_DIST / 'index.html'
+    if index_file.exists():
+        return FileResponse(str(index_file))
+    raise HTTPException(status_code=404, detail='Dashboard not built')
+
+if __name__ == '__main__':
+    import uvicorn
+    init_db()
+    uvicorn.run('app_intelligence_app:app', host='0.0.0.0', port=PORT)

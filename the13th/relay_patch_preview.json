@@ -1,0 +1,19 @@
+{
+  "timestamp": "2025-11-12T03:55:13.944228",
+  "control_core_patch_snippet": [
+    "# === Event Relay Patch (AUTO-GENERATED) ===",
+    "import threading",
+    "import queue",
+    "import requests",
+    "",
+    "_relay_queue = queue.Queue()"
+  ],
+  "app_intelligence_patch_snippet": [
+    "# === Relay Receiver Patch (AUTO-GENERATED) ===",
+    "from fastapi import Request",
+    "",
+    "@app.post(\"/api/relay/receive\")",
+    "async def receive_relay(request: Request):",
+    "    try:"
+  ]
+}

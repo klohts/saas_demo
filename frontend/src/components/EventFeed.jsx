@@ -1,17 +1,42 @@
-/* EventFeed.jsx — live list of events */
-import React from 'react'
+import React, {useEffect, useState, useRef} from 'react'
 
-export default function EventFeed({events=[]}){
+export default function EventFeed({wsUrl}){
+  const [events, setEvents] = useState([]);
+  const wsRef = useRef(null);
+
+  useEffect(()=>{
+    let mounted=true;
+    const connect = ()=> {
+      try{
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        const url = wsUrl || `${proto}://${location.hostname}:8000/analytics/ws`;
+        const ws = new WebSocket(url);
+        ws.onmessage = (ev)=>{
+          try{
+            const msg = JSON.parse(ev.data);
+            if(msg?.type === "event"){
+              setEvents(prev => [msg.data, ...prev].slice(0,50));
+            }
+          }catch(e){}
+        }
+        ws.onopen = ()=> console.log("ws open", url);
+        ws.onclose = ()=> setTimeout(connect, 2000);
+        wsRef.current = ws;
+      }catch(e){
+        console.warn("ws err", e);
+        setTimeout(connect, 2000);
+      }
+    }
+    connect();
+    return ()=> { mounted=false; if(wsRef.current) wsRef.current.close(); }
+  }, [wsUrl]);
+
   return (
-    <div className="bg-gray-900 border border-gray-800 p-4 rounded-md space-y-3">
-      {events.length===0 ? (
-        <div className="text-sm text-gray-500">No events yet</div>
-      ) : events.map((ev,i)=> (
-        <div key={i} className="p-2 bg-gray-800 border border-gray-700 rounded">
-          <div className="text-sm font-mono text-gray-300">{ev.action} — <span className="text-gray-400">{ev.user}</span></div>
-          <div className="text-xs text-gray-500">{ev.timestamp}</div>
-        </div>
-      ))}
+    <div>
+      <h3>Live Events</h3>
+      <ul>
+        {events.map((e, i)=> <li key={i}><strong>{e.user}</strong> — {e.action} <small>({e.ts})</small></li>)}
+      </ul>
     </div>
   )
 }

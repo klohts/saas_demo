@@ -1,0 +1,13 @@
+{
+  "example_client": {
+    "display_name": "Example Client",
+    "logo_url": "https://cdn.the13th.ai/example-logo.png",
+    "primary_color": "#1E90FF",
+    "accent_color": "#F0F8FF",
+    "dashboard_title": "Example Client Intelligence",
+    "features": {
+      "show_event_feed": true,
+      "enable_pricing_panel": false
+    }
+  }
+}

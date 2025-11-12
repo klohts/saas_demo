@@ -1,0 +1,37 @@
+{
+  "version": "1.0",
+  "currency": "USD",
+  "tiers": [
+    {
+      "id": "basic",
+      "name": "Basic",
+      "price_monthly": 29,
+      "limits": {
+        "dashboards": 1,
+        "alerts": 50
+      },
+      "description": "Good for solo agents and testing."
+    },
+    {
+      "id": "pro",
+      "name": "Pro",
+      "price_monthly": 199,
+      "limits": {
+        "dashboards": 5,
+        "alerts": 1000
+      },
+      "description": "Most teams will start here."
+    },
+    {
+      "id": "enterprise",
+      "name": "Enterprise",
+      "price_monthly": 899,
+      "limits": {
+        "dashboards": 50,
+        "alerts": 100000
+      },
+      "description": "Dedicated support and SSO."
+    }
+  ],
+  "notes": "IDs are stable identifiers used by checkout integration."
+}

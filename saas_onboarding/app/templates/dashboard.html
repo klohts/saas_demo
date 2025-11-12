@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">Dashboard</h1>
+<p>Hello <strong>{{ user_email }}</strong></p>
+<p>Plan: <strong>{{ plan }}</strong></p>
+<div class="bg-white p-4 rounded shadow mt-4">
+  <h2 class="font-semibold mb-2">Client Config</h2>
+  <pre class="text-xs bg-gray-100 p-2 rounded">{{ config_json }}</pre>
+</div>
+<a href="/logout" class="mt-4 inline-block px-3 py-2 bg-red-500 text-white rounded">Logout</a>
+{% endblock %}

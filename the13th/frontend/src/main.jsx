@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useRef } from 'react'
-import ReactDOM from 'react-dom/client'
-import './index.css'
+import React from "react"
+import ReactDOM from "react-dom/client"
+import App from "./App.jsx"
+import "./index.css"
 
 function useEventWebSocket(path = '/ws/events') {
   const [events, setEvents] = useState([])
@@ -79,4 +80,8 @@ function Dashboard() {
   )
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<Dashboard />)
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+)

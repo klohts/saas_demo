@@ -2,6 +2,7 @@ import json
 import os
 from datetime import datetime
 from typing import Dict
+from .slack_alerts import send_slack, SpikeDetector
 
 STORE_PATH = "analytics_store.json"
 
