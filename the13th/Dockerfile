@@ -23,7 +23,7 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copy backend source
 COPY . .
 
-# Copy built frontend into FastAPI static dir
+# ✅ FIX: Copy built frontend to correct path
 COPY --from=frontend /app/frontend/dist /app/frontend/dist
 
 # Expose Render port
