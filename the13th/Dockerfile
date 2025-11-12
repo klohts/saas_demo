@@ -1,41 +1,36 @@
-# --- Build stage: build React with Node 20 ---
-FROM node:20-bullseye as builder
-WORKDIR /app
-
-# copy only what we need to leverage caching
-COPY frontend/package.json frontend/package-lock.json* ./frontend/
-COPY frontend/ ./frontend/
+# ============================================
+# Stage 1: Build frontend
+# ============================================
+FROM node:18-alpine AS builder
 WORKDIR /app/frontend
-
-RUN npm ci --no-audit --no-fund
+COPY frontend/package*.json ./
+RUN npm install --legacy-peer-deps
+COPY frontend .
 RUN npm run build
 
-# --- Runtime stage: Python + FastAPI ---
-FROM python:3.11-slim
+# ============================================
+# Stage 2: Build backend
+# ============================================
+FROM python:3.12-slim AS backend
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# create app user
-RUN useradd --create-home appuser
-WORKDIR /app
-
-# install runtime deps
 COPY requirements.txt .
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && pip install --no-cache-dir -r requirements.txt \
-    && apt-get purge -y --auto-remove build-essential \
-    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir -r requirements.txt
 
-# copy backend + static assets from builder
-COPY . /app
-# copy built frontend
+# Copy backend app files
+COPY . .
+
+# Copy built frontend static files
 COPY --from=builder /app/frontend/dist /app/static
 
-# ensure static is readable
+# Create non-root user
+RUN useradd -m appuser
 RUN chown -R appuser:appuser /app
 USER appuser
 
-ENV APP_PORT=8012
-EXPOSE 8012
+EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8012"]
+# Start FastAPI app
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
