@@ -1,29 +1,9 @@
-import { useNavigate, Routes, Route } from "react-router-dom";
-import Dashboard from "./pages/Dashboard";
+import TenantProfile from "./components/TenantProfile";
+import AdminTenantPanel from "./components/AdminTenantPanel";
 
-function LandingPage() {
-  const navigate = useNavigate();
-
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
-      <h1 className="text-4xl font-bold mb-8 text-black">
-        The 13th Intelligence Dashboard
-      </h1>
-      <button
-        onClick={() => navigate("/dashboard")}
-        className="px-6 py-3 bg-purple-700 text-white rounded-lg shadow-lg hover:bg-purple-800 transition-colors duration-300"
-      >
-        Dashboard
-      </button>
-    </div>
-  );
-}
-
-export default function App() {
-  return (
-    <Routes>
-      <Route path="/" element={<LandingPage />} />
-      <Route path="/dashboard" element={<Dashboard />} />
-    </Routes>
-  );
-}
+export default function App(){
+  const [selectedTenant,setSelectedTenant]=React.useState(null);
+  return (<div className='p-8'>
+  {!selectedTenant && <AdminTenantPanel onSelect={setSelectedTenant}/>}
+  {selectedTenant && <TenantProfile tenantId={selectedTenant.id} onClose={()=>setSelectedTenant(null)}/>}
+  </div>);}
