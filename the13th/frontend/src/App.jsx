@@ -1,6 +1,5 @@
 import { useNavigate, Routes, Route } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
-import AdminTenantPanel from "./components/AdminTenantPanel"; // ✅ Top-level import
 
 function LandingPage() {
   const navigate = useNavigate();
@@ -16,8 +15,6 @@ function LandingPage() {
       >
         Dashboard
       </button>
-      {/* Optional: Mount AdminTenantPanel */}
-      <AdminTenantPanel />
     </div>
   );
 }
