@@ -1,34 +1,29 @@
 import { useNavigate, Routes, Route } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
+import AdminTenantPanel from "./components/AdminTenantPanel"; // ✅ Top-level import
 
 function LandingPage() {
   const navigate = useNavigate();
-  import AdminTenantPanel from "./components/AdminTenantPanel";
 
-return (
-    <AdminTenantPanel />
-
+  return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-orange-400">
       <h1 className="text-4xl font-bold mb-8 text-black">
         The 13th Intelligence Dashboard
       </h1>
-
       <button
         onClick={() => navigate("/dashboard")}
         className="px-6 py-3 bg-purple-700 text-white rounded-lg shadow-lg hover:bg-purple-800"
       >
         Dashboard
       </button>
+      {/* Optional: Mount AdminTenantPanel */}
+      <AdminTenantPanel />
     </div>
   );
 }
 
 export default function App() {
-  import AdminTenantPanel from "./components/AdminTenantPanel";
-
-return (
-    <AdminTenantPanel />
-
+  return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/dashboard" element={<Dashboard />} />
