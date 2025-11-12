@@ -38,4 +38,4 @@ USER appuser
 ENV APP_PORT=8012
 EXPOSE 8012
 
-CMD ["uvicorn", "setup_frontend_serving:app", "--host", "0.0.0.0", "--port", "8012"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8012"]
