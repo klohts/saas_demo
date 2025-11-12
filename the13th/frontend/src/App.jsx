@@ -3,7 +3,11 @@ import Dashboard from "./pages/Dashboard";
 
 function LandingPage() {
   const navigate = useNavigate();
-  return (
+  import AdminTenantPanel from "./components/AdminTenantPanel";
+
+return (
+    <AdminTenantPanel />
+
     <div className="flex flex-col items-center justify-center min-h-screen bg-orange-400">
       <h1 className="text-4xl font-bold mb-8 text-black">
         The 13th Intelligence Dashboard
@@ -20,7 +24,11 @@ function LandingPage() {
 }
 
 export default function App() {
-  return (
+  import AdminTenantPanel from "./components/AdminTenantPanel";
+
+return (
+    <AdminTenantPanel />
+
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/dashboard" element={<Dashboard />} />
