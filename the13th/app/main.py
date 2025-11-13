@@ -100,34 +100,34 @@ async def serve_root():
         return FileResponse(index)
     return {"status": "ok"}
 
-# --- SPA Catch-All ---
+# --- SPA Catch-All (must be last) ---
 @app.get("/{path:path}", include_in_schema=False)
 async def serve_spa(path: str, request: Request):
-    if any(request.url.path.startswith(p) for p in ["/api", "/ws", "/assets", "/static", "/healthz"]):
+    if any(
+        request.url.path.startswith(p)
+        for p in ["/api", "/ws", "/assets", "/static", "/healthz"]
+    ):
         return JSONResponse({"detail": "Not Found"}, status_code=404)
 
     index = os.path.join(dist_dir, "index.html")
     if os.path.exists(index):
         return FileResponse(index)
-    return {"status": "ok"}
+    return JSONResponse({"status": "ok"})
 
-# --- Plan Endpoint (Stable for Dashboard) ---
-,
-        "projects": [],
-        "tenants": [],
-        "status": "running",
-    }
-
-app.include_router(api)
-
-
+# --- Plan API (used by Dashboard) ---
 @api.get("/plan")
 async def get_plan():
     return {
         "plan": "Free",
-        "usage": {"cpu": 0.2, "ram": 128},
+        "usage": {
+            "cpu": 0.2,
+            "ram": 128,
+        },
         "projects": [],
         "tenants": [],
         "status": "running",
     }
+
+# Attach API router at the end
+app.include_router(api)
 
