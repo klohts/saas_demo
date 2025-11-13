@@ -112,15 +112,16 @@ async def serve_spa(path: str, request: Request):
     return JSONResponse({"status": "ok"})
 
 @api.get("/plan")
+async 
+@app.get("/api/plan")
 async def get_plan():
-    """Temporary API endpoint for dashboard testing"""
     return {
         "plan": "Free",
-        "projects": 3,
-        "active_tenants": 1,
-        "usage": "0.2 CPU, 128MB RAM",
+        "usage": {
+            "cpu": 0.2,
+            "ram": 128,
+        },
+        "projects": [],
+        "tenants": [],
         "status": "running",
     }
-
-
-app.include_router(api)
