@@ -112,24 +112,22 @@ async def serve_spa(path: str, request: Request):
     return {"status": "ok"}
 
 # --- Plan Endpoint (Stable for Dashboard) ---
-@api.get("/plan")
-async def get_plan():
-    """
-    Dashboard expects:
-    - plan (string)
-    - usage (object)
-    - projects (array)
-    - tenants (array)
-    """
-    return {
-        "plan": "Free",
-        "usage": {
-            "cpu": 0.2,
-            "ram": 128,
-        },
+,
         "projects": [],
         "tenants": [],
         "status": "running",
     }
 
 app.include_router(api)
+
+
+@api.get("/plan")
+async def get_plan():
+    return {
+        "plan": "Free",
+        "usage": {"cpu": 0.2, "ram": 128},
+        "projects": [],
+        "tenants": [],
+        "status": "running",
+    }
+
