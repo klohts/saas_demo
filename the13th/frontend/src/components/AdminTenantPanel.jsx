@@ -44,7 +44,6 @@ export default function AdminTenantPanel({ onSelect }) {
 
     setLoading(true);
 
-    try:
     try {
       const url = `${window.location.origin}/api/tenants`;
       const res = await fetch(url, {
