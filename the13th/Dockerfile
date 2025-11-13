@@ -3,14 +3,13 @@
 # ----------------------
 FROM node:18 AS frontend
 
-WORKDIR /app
+WORKDIR /app/frontend
 
-# Copy frontend from correct location inside build context
-COPY frontend/package*.json ./frontend/
-RUN cd frontend && npm install
+COPY frontend/package*.json ./
+RUN npm install
 
-COPY frontend ./frontend
-RUN cd frontend && npm run build
+COPY frontend .
+RUN npm run build
 
 # ----------------------
 # 2. Build Backend
@@ -23,13 +22,18 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copy backend source
-COPY . .
+# ❗ ONLY COPY THE13TH BACKEND CODE — not entire repo
+COPY app ./app
+COPY config ./config
+COPY data ./data
+COPY static ./static
+COPY templates ./templates
+COPY frontend ./frontend/      # so SPA dist exists at runtime
 
-# ✅ Copy built frontend into exact location FastAPI expects
-COPY --from=frontend /app/frontend/dist /app/frontend/dist
+# Bring in the built frontend output
+COPY --from=frontend /app/frontend/dist ./frontend/dist
 
 ENV PORT=8000
 EXPOSE 8000
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port $PORT"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
