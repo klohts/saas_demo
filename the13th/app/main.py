@@ -14,8 +14,11 @@ logger.setLevel(logging.INFO)
 
 # --- App init ---
 app = FastAPI(title="THE13TH", version="1.0")
+
+# Mount Tenants API
 app.include_router(tenants_router, prefix="/api/tenants")
 
+# Shared API router
 api = APIRouter(prefix="/api")
 
 # --- WebSocket Broadcast Manager ---
@@ -75,10 +78,9 @@ async def ws_events(ws: WebSocket):
 
 @app.get("/healthz")
 async def healthz():
-    return JSONResponse({"status": "ok", "app": "THE13TH"})
+    return {"status": "ok", "app": "THE13TH"}
 
-
-# --- Frontend Static Mounting (MUST COME BEFORE CATCH-ALL ROUTES) ---
+# --- Frontend Static Mounting ---
 dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
 assets_dir = os.path.join(dist_dir, "assets")
 
@@ -90,17 +92,15 @@ if os.path.isdir(dist_dir):
     app.mount("/static", StaticFiles(directory=dist_dir), name="static")
     logger.info("Mounted /static from %s", dist_dir)
 
-
 # --- Serve SPA Root ---
 @app.get("/", include_in_schema=False)
 async def serve_root():
     index = os.path.join(dist_dir, "index.html")
     if os.path.exists(index):
         return FileResponse(index)
-    return JSONResponse({"status": "ok"})
+    return {"status": "ok"}
 
-
-# --- SPA Catch-All (must be last) ---
+# --- SPA Catch-All ---
 @app.get("/{path:path}", include_in_schema=False)
 async def serve_spa(path: str, request: Request):
     if any(request.url.path.startswith(p) for p in ["/api", "/ws", "/assets", "/static", "/healthz"]):
@@ -109,11 +109,10 @@ async def serve_spa(path: str, request: Request):
     index = os.path.join(dist_dir, "index.html")
     if os.path.exists(index):
         return FileResponse(index)
-    return JSONResponse({"status": "ok"})
+    return {"status": "ok"}
 
+# --- Dashboard Plan Endpoint (fixed) ---
 @api.get("/plan")
-async 
-@app.get("/api/plan")
 async def get_plan():
     return {
         "plan": "Free",
@@ -125,3 +124,7 @@ async def get_plan():
         "tenants": [],
         "status": "running",
     }
+
+# Register API router
+app.include_router(api)
+    
