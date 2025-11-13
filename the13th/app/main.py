@@ -139,3 +139,18 @@ async def serve_index():
         return FileResponse(index_path)
     logger.warning("index.html not found at %s", index_path)
     return JSONResponse({"error": "frontend not built"}, status_code=404)
+
+# -----------------------------------------------------
+# SPA Catch-all — must be last
+# -----------------------------------------------------
+@app.get("/{path:path}", include_in_schema=False)
+async def spa_fallback(path: str, request: Request):
+    # Don’t intercept API or asset routes
+    if request.url.path.startswith(("/api", "/ws", "/healthz", "/assets")):
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+    index_path = os.path.join(FRONTEND_DIST, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path)
+
+    return JSONResponse({"error": "frontend not built"}, status_code=404)
