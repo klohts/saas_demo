@@ -1,34 +1,30 @@
-# ============================================================
-# THE13TH — Stable Production Dockerfile (Day 9 Fix)
-# ============================================================
-# Frontend build stage
+# -------- FRONTEND BUILD --------
 FROM node:18 AS frontend
-WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm install --legacy-peer-deps
-COPY frontend .
-RUN npm run build
+WORKDIR /app
+COPY frontend/package*.json ./frontend/
+RUN cd frontend && npm install
+COPY frontend ./frontend
+RUN cd frontend && npm run build
 
-# Backend stage
+# -------- BACKEND BUILD --------
 FROM python:3.10-slim AS backend
 WORKDIR /app
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
 
-# Install deps
+# Install dependencies
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copy backend app code
+# Copy backend source
 COPY app ./app
-COPY config ./config
 COPY data ./data
+COPY config ./config
 COPY static ./static
 COPY templates ./templates
 
-# Copy built SPA
-COPY --from=frontend /app/frontend/dist /app/frontend/dist
+# Copy built frontend
+COPY --from=frontend /app/frontend/dist ./frontend/dist
 
 ENV PORT=8000
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --proxy-headers"]

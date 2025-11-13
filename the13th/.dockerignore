@@ -1,22 +1,11 @@
-# Ignore venvs
-.venv/
-the13th/.venv/
-
-# Ignore logs
-logs/*
-
-# Ignore local databases
-*.db
-**/*.db
-
-# Ignore git
-.git/
-.gitignore
-
-# Ignore caches
 __pycache__/
-**/__pycache__/
-
-# Ignore Node
+*.pyc
+*.pyo
+*.pyd
+*.db
+.env
+.env.local
+.env.*.local
 node_modules/
 frontend/node_modules/
+.vscode/
